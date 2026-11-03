@@ -10,6 +10,10 @@
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
+  <!-- PDF 產生套件 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
   <style>
     body {
       -webkit-tap-highlight-color: transparent;
@@ -356,11 +360,13 @@
 
         <div class="flex items-center gap-3">
 
+          <!-- 原列印按鈕改為 PDF 下載 -->
           <button
-            onclick="window.print()"
+            id="pdf-download-btn"
+            onclick="downloadQrPdf()"
             class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition shadow-sm"
           >
-            🖨️ 列印標籤 (A4)
+            📄 下載 PDF (A4)
           </button>
 
           <button
@@ -636,6 +642,8 @@ function handleQrCodeScan(decodedText) {
 
     resultElem.className =
       "font-semibold text-red-700 min-h-[30px] flex items-center";
+
+    startCooldown();
 
     return;
 
@@ -969,7 +977,219 @@ function closeQrModal() {
 
 
 /* =========================================
-   14. 管理員一鍵全簽
+   14. PDF 匯出功能
+   A4 直式，每頁 4 欄 × 4 列
+   每頁 16 張，31 人共 2 頁
+========================================= */
+
+async function downloadQrPdf() {
+
+  const button = document.getElementById("pdf-download-btn");
+
+  const area = document.getElementById("qr-print-area");
+
+  const cards = Array.from(area.children);
+
+  if (cards.length === 0) {
+
+    alert("目前沒有 QR Code 標籤可以產生！");
+
+    return;
+
+  }
+
+  if (!window.html2canvas || !window.jspdf) {
+
+    alert("PDF 套件載入失敗，請重新整理網頁後再試一次。");
+
+    return;
+
+  }
+
+  const originalText = button.innerText;
+
+  button.disabled = true;
+
+  try {
+
+    button.innerText = "⏳ 正在準備 PDF...";
+
+    // 等待字型及畫面完成
+    if (document.fonts && document.fonts.ready) {
+      await document.fonts.ready;
+    }
+
+    // 等待 QR Code 產生
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    const { jsPDF } = window.jspdf;
+
+    const pdf = new jsPDF({
+
+      orientation: "portrait",
+
+      unit: "mm",
+
+      format: "a4",
+
+      compress: true
+
+    });
+
+    // A4 尺寸
+    const pageWidth = 210;
+    const pageHeight = 297;
+
+    // 每頁 4 欄 × 4 列
+    const columns = 4;
+    const rows = 4;
+
+    const perPage = columns * rows;
+
+    // 頁面邊界及間距
+    const margin = 8;
+    const gap = 3;
+
+    // 每個標籤的可用尺寸
+    const cellWidth =
+      (pageWidth - margin * 2 - gap * (columns - 1)) / columns;
+
+    const cellHeight =
+      (pageHeight - margin * 2 - gap * (rows - 1)) / rows;
+
+    // 逐張產生 PDF
+    for (let i = 0; i < cards.length; i++) {
+
+      button.innerText =
+        `⏳ 正在產生 PDF ${i + 1}/${cards.length}`;
+
+      const card = cards[i];
+
+      // 保留原本標籤 DOM 外觀
+      const canvas = await html2canvas(card, {
+
+        scale: 3,
+
+        backgroundColor: "#ffffff",
+
+        useCORS: true,
+
+        logging: false,
+
+        allowTaint: false,
+
+        imageTimeout: 15000
+
+      });
+
+      const imageData = canvas.toDataURL("image/png");
+
+      // 每 16 張新增一頁
+      if (i > 0 && i % perPage === 0) {
+
+        pdf.addPage();
+
+      }
+
+      // 計算目前在本頁的位置
+      const index = i % perPage;
+
+      const col = index % columns;
+
+      const row = Math.floor(index / columns);
+
+      const x = margin + col * (cellWidth + gap);
+
+      const y = margin + row * (cellHeight + gap);
+
+      // 等比例縮放，不變形
+      const ratio = canvas.width / canvas.height;
+
+      let drawWidth = cellWidth;
+
+      let drawHeight = drawWidth / ratio;
+
+      // 高度超出時改以高度為基準
+      if (drawHeight > cellHeight) {
+
+        drawHeight = cellHeight;
+
+        drawWidth = drawHeight * ratio;
+
+      }
+
+      // 標籤置中
+      const drawX =
+        x + (cellWidth - drawWidth) / 2;
+
+      const drawY =
+        y + (cellHeight - drawHeight) / 2;
+
+      pdf.addImage(
+
+        imageData,
+
+        "PNG",
+
+        drawX,
+
+        drawY,
+
+        drawWidth,
+
+        drawHeight,
+
+        undefined,
+
+        "FAST"
+
+      );
+
+    }
+
+    // 產生檔案日期
+    const now = new Date();
+
+    const date =
+      `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+
+    // 儲存 PDF
+    pdf.save(`807_學生QR_Code_${date}.pdf`);
+
+    // 完成訊息
+    const totalPages = Math.ceil(cards.length / perPage);
+
+    alert(
+      "PDF 產生成功！\n\n" +
+      `學生人數：${cards.length} 人\n` +
+      "紙張尺寸：A4 直式\n" +
+      "每頁配置：4 欄 × 4 列\n" +
+      `每頁張數：${perPage} 張\n` +
+      `總頁數：${totalPages} 頁`
+    );
+
+  } catch (error) {
+
+    console.error("PDF 產生失敗：", error);
+
+    alert(
+      "PDF 產生失敗！\n\n" +
+      "錯誤訊息：" + error.message
+    );
+
+  } finally {
+
+    button.disabled = false;
+
+    button.innerText = originalText;
+
+  }
+
+}
+
+
+/* =========================================
+   15. 管理員一鍵全簽
 ========================================= */
 
 function bulkCheckIn() {
@@ -1006,7 +1226,7 @@ function bulkCheckIn() {
 
 
 /* =========================================
-   15. 重置今日點名
+   16. 重置今日點名
 ========================================= */
 
 function resetAttendance() {
@@ -1025,7 +1245,7 @@ function resetAttendance() {
 
 
 /* =========================================
-   16. 編輯學生名冊
+   17. 編輯學生名冊
 ========================================= */
 
 function editStudents() {
@@ -1113,7 +1333,7 @@ function editStudents() {
 
 
 /* =========================================
-   17. 模擬時間
+   18. 模擬時間
 ========================================= */
 
 function toggleSimulate() {
@@ -1183,7 +1403,7 @@ function disableSimTime() {
 
 
 /* =========================================
-   18. 匯出 CSV
+   19. 匯出 CSV
 ========================================= */
 
 function exportData() {
@@ -1242,7 +1462,7 @@ function exportData() {
 
 
 /* =========================================
-   19. 更新即時時鐘
+   20. 更新即時時鐘
 ========================================= */
 
 function updateClock() {
@@ -1265,7 +1485,7 @@ function updateClock() {
 
 
 /* =========================================
-   20. 名冊顯示
+   21. 名冊顯示
    注意：此處完全沒有學生簽到按鈕
 ========================================= */
 
@@ -1393,7 +1613,7 @@ function render() {
 
 
 /* =========================================
-   21. 系統初始化
+   22. 系統初始化
 ========================================= */
 
 function init() {
