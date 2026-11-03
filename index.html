@@ -1,0 +1,1419 @@
+
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>807 班早晨點名簽到系統</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <style>
+    body {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #reader video {
+      object-fit: cover !important;
+      border-radius: 12px;
+    }
+
+    @media print {
+      @page {
+        size: A4;
+        margin: 10mm;
+      }
+
+      body * {
+        visibility: hidden !important;
+      }
+
+      #qr-print-area,
+      #qr-print-area * {
+        visibility: visible !important;
+      }
+
+      #qr-print-area {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        display: grid !important;
+        grid-template-columns: repeat(4, 1fr) !important;
+        gap: 8px !important;
+      }
+
+      #qr-print-area > div {
+        break-inside: avoid;
+        border: 1px dashed #64748b !important;
+        box-shadow: none !important;
+      }
+
+      .no-print {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+
+<body class="bg-slate-50 text-slate-800 min-h-screen pb-12 font-sans">
+
+  <!-- 頂部導覽列 -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-20 flex flex-wrap items-center justify-between gap-4 py-3">
+
+      <div class="flex items-center gap-3">
+        <div class="bg-slate-900 text-white p-2.5 rounded-xl font-bold text-xl tracking-wider">
+          QP807
+        </div>
+
+        <div>
+          <h1 class="text-xl font-bold text-slate-900 tracking-tight">
+            807 班早晨點名簽到系統
+          </h1>
+
+          <p class="text-xs text-slate-500">
+            簽到截止時間：
+            <span class="font-semibold text-slate-700">07:47:00</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-4">
+
+        <div class="text-right">
+          <div id="current-date" class="text-xs font-medium text-slate-500">
+            ----/--/-- (一)
+          </div>
+
+          <div id="current-time" class="text-2xl font-mono font-bold text-slate-900 tracking-wider">
+            00:00:00
+          </div>
+        </div>
+
+        <button
+          id="camera-btn"
+          onclick="toggleCamera()"
+          class="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl font-medium transition shadow-sm active:scale-95"
+        >
+          <span>📷</span>
+          <span id="camera-btn-text">開啟鏡頭掃描</span>
+        </button>
+
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
+
+    <!-- 鏡頭掃描區 -->
+    <div
+      id="camera-container"
+      class="hidden bg-white border border-slate-200 rounded-2xl p-6 shadow-md"
+    >
+
+      <div class="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
+
+        <div class="flex items-center gap-2">
+
+          <span class="relative flex h-3 w-3">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+          </span>
+
+          <h2 class="font-bold text-slate-900">
+            QR Code 自動感應簽到中
+          </h2>
+
+        </div>
+
+        <button
+          onclick="toggleCamera()"
+          class="text-slate-400 hover:text-slate-600 text-sm font-medium"
+        >
+          關閉鏡頭 ✕
+        </button>
+
+      </div>
+
+      <div class="flex flex-col md:flex-row gap-6 items-center">
+
+        <div class="w-full md:w-96 h-72 bg-slate-100 rounded-xl overflow-hidden relative border border-slate-200">
+          <div id="reader" class="w-full h-full"></div>
+        </div>
+
+        <div class="flex-1 space-y-3 text-sm text-slate-600">
+
+          <div>
+            <p class="font-semibold text-slate-800 mb-2">
+              📷 簽到使用說明
+            </p>
+
+            <ul class="list-disc pl-5 space-y-1">
+              <li>請將學生專屬 QR Code 對準攝影機。</li>
+              <li>系統自動辨識座號並完成簽到。</li>
+              <li>成功後會發出提示音。</li>
+              <li>每次掃描後有 3 秒冷卻時間。</li>
+              <li>已簽到學生再次掃描不會重複紀錄。</li>
+              <li>學生不能透過點擊名冊自行簽到。</li>
+            </ul>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
+            <div class="text-xs text-slate-500 mb-1">
+              掃描結果
+            </div>
+
+            <div
+              id="scan-result"
+              class="font-semibold text-slate-700 min-h-[30px] flex items-center"
+            >
+              等待感應 QR Code...
+            </div>
+          </div>
+
+          <div class="text-xs text-slate-400">
+            有效格式：QP807-01、QP807-02、QP807-35
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- 統計卡片 -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+
+      <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+        <div class="text-xs font-medium text-slate-500">應到人數</div>
+        <div id="count-total" class="text-2xl font-bold text-slate-900 mt-1">0</div>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+        <div class="text-xs font-medium text-emerald-600">準時簽到</div>
+        <div id="count-on-time" class="text-2xl font-bold text-emerald-600 mt-1">0</div>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+        <div class="text-xs font-medium text-amber-600">遲到</div>
+        <div id="count-late" class="text-2xl font-bold text-amber-600 mt-1">0</div>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+        <div class="text-xs font-medium text-slate-400">未簽到</div>
+        <div id="count-absent" class="text-2xl font-bold text-slate-400 mt-1">0</div>
+      </div>
+
+    </div>
+
+    <!-- 管理員工具列 -->
+    <div class="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-bold text-slate-400 tracking-wider uppercase">
+          管理功能
+        </span>
+
+        <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono">
+          密碼保護中
+        </span>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+
+        <button
+          onclick="protectedAction(openQrModal)"
+          class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg transition"
+        >
+          🔒 產生學生 QR Code
+        </button>
+
+        <button
+          onclick="protectedAction(bulkCheckIn)"
+          class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition"
+        >
+          🔒 一鍵全簽
+        </button>
+
+        <button
+          onclick="protectedAction(resetAttendance)"
+          class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition"
+        >
+          🔒 重置今日點名
+        </button>
+
+        <button
+          onclick="protectedAction(editStudents)"
+          class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition"
+        >
+          🔒 編輯學生名單
+        </button>
+
+        <button
+          onclick="protectedAction(toggleSimulate)"
+          class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg transition"
+        >
+          🔒 模擬時間測試
+        </button>
+
+        <button
+          onclick="exportData()"
+          class="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg transition"
+        >
+          📥 匯出紀錄 (CSV)
+        </button>
+
+      </div>
+    </div>
+
+    <!-- 模擬時間 -->
+    <div
+      id="sim-panel"
+      class="hidden bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-center justify-between gap-4"
+    >
+
+      <div class="flex items-center gap-2 text-amber-800 text-sm font-medium">
+        <span>⚠️ 模式：</span>
+        <span>模擬系統時間中</span>
+      </div>
+
+      <div class="flex items-center gap-2">
+
+        <input
+          type="time"
+          id="sim-time-input"
+          value="07:45"
+          class="px-3 py-1 border border-amber-300 rounded-lg text-sm bg-white"
+        >
+
+        <button
+          onclick="applySimTime()"
+          class="px-3 py-1 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700"
+        >
+          套用時間
+        </button>
+
+        <button
+          onclick="disableSimTime()"
+          class="px-3 py-1 bg-slate-200 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-300"
+        >
+          恢復真實時間
+        </button>
+
+      </div>
+    </div>
+
+    <!-- 學生名冊：純顯示，沒有簽到按鈕 -->
+    <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+
+      <div class="flex items-center justify-between mb-4">
+
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">
+            807 班學生點名名冊
+          </h2>
+
+          <p class="text-xs text-slate-500 mt-1">
+            本頁僅顯示簽到狀態，簽到必須透過 QR Code 掃描完成。
+          </p>
+        </div>
+
+        <span class="text-xs text-slate-400">
+          QR Code 專用簽到
+        </span>
+
+      </div>
+
+      <div
+        id="student-grid"
+        class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4"
+      ></div>
+
+    </div>
+
+  </main>
+
+  <!-- QR Code 列印視窗 -->
+  <div
+    id="qr-modal"
+    class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
+  >
+
+    <div class="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl">
+
+      <div class="p-5 border-b border-slate-200 flex items-center justify-between no-print">
+
+        <div>
+          <h3 class="text-lg font-bold text-slate-900">
+            807 班學生 QR Code 簽到標籤
+          </h3>
+
+          <p class="text-xs text-slate-500">
+            列印後可剪下貼於學生聯絡簿或識別卡上
+          </p>
+        </div>
+
+        <div class="flex items-center gap-3">
+
+          <button
+            onclick="window.print()"
+            class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition shadow-sm"
+          >
+            🖨️ 列印標籤 (A4)
+          </button>
+
+          <button
+            onclick="closeQrModal()"
+            class="text-slate-400 hover:text-slate-600 text-lg font-bold p-1"
+          >
+            ✕
+          </button>
+
+        </div>
+      </div>
+
+      <div class="p-6 overflow-y-auto flex-1">
+
+        <div
+          id="qr-print-area"
+          class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"
+        ></div>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+
+/* =========================================
+   1. 系統基本設定
+========================================= */
+
+const ADMIN_PASS = "qpjh807";
+const LATE_TIME = "07:47:00";
+const COOLDOWN_MS = 3000;
+
+
+/* =========================================
+   2. 807 班學生名單
+========================================= */
+
+const defaultStudents = [
+  { id: 1, name: "王子濬" },
+  { id: 2, name: "何宥弘" },
+  { id: 3, name: "吳慕祈" },
+  { id: 4, name: "呂品澄" },
+  { id: 5, name: "李悅誠" },
+  { id: 6, name: "袁明應" },
+  { id: 7, name: "郭承奕" },
+  { id: 8, name: "陳紘紳" },
+  { id: 9, name: "陳櫂銘" },
+  { id: 10, name: "彭宥盛" },
+  { id: 11, name: "曾晨熙" },
+  { id: 12, name: "董瑞德" },
+  { id: 13, name: "詹竤安" },
+  { id: 14, name: "劉裕翔" },
+  { id: 15, name: "潘品叡" },
+  { id: 16, name: "蘇宥鉦" },
+  { id: 21, name: "仲妍霏" },
+  { id: 22, name: "沈昕樂" },
+  { id: 23, name: "林星吟" },
+  { id: 24, name: "范佳萱" },
+  { id: 25, name: "徐安葳" },
+  { id: 26, name: "浦文珏" },
+  { id: 27, name: "連雨婕" },
+  { id: 28, name: "陳星言" },
+  { id: 29, name: "陳儀安" },
+  { id: 30, name: "黃詠芊" },
+  { id: 31, name: "萬珈寧" },
+  { id: 32, name: "褚維恩" },
+  { id: 33, name: "劉雨緁" },
+  { id: 34, name: "戴芙寧" },
+  { id: 35, name: "薛尹柔" }
+];
+
+
+/* =========================================
+   3. 系統變數
+========================================= */
+
+let students = loadStudents();
+
+let attendance = {};
+
+let isSimulating = false;
+let simTime = null;
+
+let html5QrcodeScanner = null;
+let isCameraOpen = false;
+let scanCoolDown = false;
+
+
+/* =========================================
+   4. 讀取學生名單
+========================================= */
+
+function loadStudents() {
+
+  try {
+
+    const saved = localStorage.getItem("qp807_students");
+
+    if (saved) {
+
+      const parsed = JSON.parse(saved);
+
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+
+    }
+
+  } catch (error) {
+
+    console.error("讀取學生名單失敗", error);
+
+  }
+
+  return defaultStudents.map(s => ({ ...s }));
+}
+
+
+/* =========================================
+   5. 日期與時間
+========================================= */
+
+function getNow() {
+
+  if (isSimulating && simTime) {
+    return new Date(simTime);
+  }
+
+  return new Date();
+
+}
+
+
+function getTodayKey() {
+
+  const now = getNow();
+
+  return `qp807_att_${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+
+}
+
+
+function getTimeString() {
+
+  const now = getNow();
+
+  return [
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+    String(now.getSeconds()).padStart(2, "0")
+  ].join(":");
+
+}
+
+
+function getAttendanceStatus(time) {
+
+  return time > LATE_TIME ? "late" : "on-time";
+
+}
+
+
+/* =========================================
+   6. 點名紀錄讀取與儲存
+========================================= */
+
+function initAttendance() {
+
+  try {
+
+    attendance = JSON.parse(
+      localStorage.getItem(getTodayKey())
+    ) || {};
+
+  } catch (error) {
+
+    attendance = {};
+
+  }
+
+}
+
+
+function saveAttendance() {
+
+  localStorage.setItem(
+    getTodayKey(),
+    JSON.stringify(attendance)
+  );
+
+  render();
+
+}
+
+
+/* =========================================
+   7. 管理員密碼驗證
+========================================= */
+
+function protectedAction(action) {
+
+  const pass = prompt("請輸入管理者密碼：");
+
+  if (pass === ADMIN_PASS) {
+
+    action();
+
+  } else if (pass !== null) {
+
+    alert("密碼錯誤！");
+
+  }
+
+}
+
+
+/* =========================================
+   8. QR Code 格式驗證
+========================================= */
+
+function validateQrCode(decodedText) {
+
+  /*
+    僅接受：
+    QP807-01
+    QP807-02
+    QP807-35
+
+    不接受其他 QR Code。
+  */
+
+  const match = String(decodedText).trim().match(/^QP807-(\d{2})$/i);
+
+  if (!match) {
+    return null;
+  }
+
+  const studentId = parseInt(match[1], 10);
+
+  const student = students.find(
+    s => Number(s.id) === studentId
+  );
+
+  if (!student) {
+    return null;
+  }
+
+  return student;
+
+}
+
+
+/* =========================================
+   9. QR Code 掃描簽到
+========================================= */
+
+function handleQrCodeScan(decodedText) {
+
+  if (scanCoolDown) {
+    return;
+  }
+
+  const resultElem = document.getElementById("scan-result");
+
+  const student = validateQrCode(decodedText);
+
+  /* 條碼無效 */
+
+  if (!student) {
+
+    resultElem.innerText = "❌ 無效 QR Code，請確認是否為 807 班專屬條碼。";
+
+    resultElem.className =
+      "font-semibold text-red-700 min-h-[30px] flex items-center";
+
+    return;
+
+  }
+
+  const studentId = student.id;
+
+  /* 已簽到 */
+
+  if (attendance[studentId]) {
+
+    const record = attendance[studentId];
+
+    resultElem.innerText =
+      `⚠️ ${student.id} 號 ${student.name} 已簽到（${record.time}）`;
+
+    resultElem.className =
+      "font-semibold text-amber-700 min-h-[30px] flex items-center";
+
+    startCooldown();
+
+    return;
+
+  }
+
+  /* 新增簽到 */
+
+  const timeStr = getTimeString();
+
+  const status = getAttendanceStatus(timeStr);
+
+  attendance[studentId] = {
+
+    time: timeStr,
+
+    status: status
+
+  };
+
+  saveAttendance();
+
+  playBeep();
+
+  if (status === "late") {
+
+    resultElem.innerText =
+      `⚠️ 遲到簽到：${student.id} 號 ${student.name}（${timeStr}）`;
+
+    resultElem.className =
+      "font-semibold text-amber-700 min-h-[30px] flex items-center";
+
+  } else {
+
+    resultElem.innerText =
+      `✅ 簽到成功：${student.id} 號 ${student.name}（${timeStr}）`;
+
+    resultElem.className =
+      "font-semibold text-emerald-700 min-h-[30px] flex items-center";
+
+  }
+
+  startCooldown();
+
+}
+
+
+/* =========================================
+   10. 掃描冷卻
+========================================= */
+
+function startCooldown() {
+
+  scanCoolDown = true;
+
+  setTimeout(() => {
+
+    scanCoolDown = false;
+
+  }, COOLDOWN_MS);
+
+}
+
+
+/* =========================================
+   11. 簽到提示音
+========================================= */
+
+function playBeep() {
+
+  try {
+
+    const ctx = new (
+      window.AudioContext ||
+      window.webkitAudioContext
+    )();
+
+    const osc = ctx.createOscillator();
+
+    osc.type = "sine";
+
+    osc.frequency.setValueAtTime(
+      800,
+      ctx.currentTime
+    );
+
+    osc.connect(ctx.destination);
+
+    osc.start();
+
+    osc.stop(ctx.currentTime + 0.15);
+
+  } catch (error) {
+
+    console.log("無法播放提示音", error);
+
+  }
+
+}
+
+
+/* =========================================
+   12. 開啟與關閉鏡頭
+========================================= */
+
+async function toggleCamera() {
+
+  const container = document.getElementById("camera-container");
+
+  const btnText = document.getElementById("camera-btn-text");
+
+  if (isCameraOpen) {
+
+    await stopCamera();
+
+    return;
+
+  }
+
+  container.classList.remove("hidden");
+
+  btnText.innerText = "關閉鏡頭掃描";
+
+  isCameraOpen = true;
+
+  document.getElementById("scan-result").innerText =
+    "正在啟動鏡頭，請稍候...";
+
+  try {
+
+    html5QrcodeScanner = new Html5Qrcode("reader");
+
+    /*
+      優先使用後置鏡頭。
+      environment = 後置鏡頭。
+    */
+
+    await html5QrcodeScanner.start(
+
+      { facingMode: "environment" },
+
+      {
+
+        fps: 10,
+
+        qrbox: function(viewfinderWidth, viewfinderHeight) {
+
+          const size = Math.min(
+            viewfinderWidth,
+            viewfinderHeight,
+            250
+          );
+
+          return {
+            width: size,
+            height: size
+          };
+
+        },
+
+        aspectRatio: 1.0,
+
+        disableFlip: false
+
+      },
+
+      handleQrCodeScan,
+
+      function() {}
+
+    );
+
+    document.getElementById("scan-result").innerText =
+      "📷 鏡頭已啟動，請掃描學生 QR Code。";
+
+  } catch (error) {
+
+    console.error("鏡頭啟動失敗", error);
+
+    alert(
+      "無法開啟鏡頭！\n\n請確認：\n1. 已允許瀏覽器使用攝影機。\n2. 網站使用 HTTPS。\n3. 裝置沒有被其他程式占用鏡頭。"
+    );
+
+    await stopCamera();
+
+  }
+
+}
+
+
+async function stopCamera() {
+
+  const container = document.getElementById("camera-container");
+
+  const btnText = document.getElementById("camera-btn-text");
+
+  if (html5QrcodeScanner) {
+
+    try {
+
+      if (html5QrcodeScanner.isScanning) {
+
+        await html5QrcodeScanner.stop();
+
+      }
+
+      html5QrcodeScanner.clear();
+
+    } catch (error) {
+
+      console.error("關閉鏡頭時發生錯誤", error);
+
+    }
+
+    html5QrcodeScanner = null;
+
+  }
+
+  isCameraOpen = false;
+
+  scanCoolDown = false;
+
+  container.classList.add("hidden");
+
+  btnText.innerText = "開啟鏡頭掃描";
+
+}
+
+
+/* =========================================
+   13. 產生學生 QR Code
+========================================= */
+
+function openQrModal() {
+
+  const container = document.getElementById("qr-print-area");
+
+  container.innerHTML = "";
+
+  document.getElementById("qr-modal").classList.remove("hidden");
+
+  students.forEach(student => {
+
+    const card = document.createElement("div");
+
+    card.className =
+      "border-2 border-dashed border-slate-300 p-3 rounded-xl flex flex-col items-center justify-between bg-white text-center";
+
+    const qrId = `qr-${student.id}`;
+
+    const school = document.createElement("div");
+
+    school.className = "text-xs font-bold text-slate-500 mb-1";
+
+    school.innerText = "青埔國中 807 班";
+
+    const qrBox = document.createElement("div");
+
+    qrBox.id = qrId;
+
+    qrBox.className = "my-2 flex justify-center";
+
+    const name = document.createElement("div");
+
+    name.className = "text-sm font-bold text-slate-900 mt-1";
+
+    name.innerText = `${student.id} 號 ${student.name}`;
+
+    const code = document.createElement("div");
+
+    code.className = "text-xs text-slate-500 mt-1";
+
+    code.innerText =
+      `QP807-${String(student.id).padStart(2, "0")}`;
+
+    card.appendChild(school);
+
+    card.appendChild(qrBox);
+
+    card.appendChild(name);
+
+    card.appendChild(code);
+
+    container.appendChild(card);
+
+    new QRCode(qrBox, {
+
+      text: `QP807-${String(student.id).padStart(2, "0")}`,
+
+      width: 100,
+
+      height: 100,
+
+      colorDark: "#0f172a",
+
+      colorLight: "#ffffff",
+
+      correctLevel: QRCode.CorrectLevel.H
+
+    });
+
+  });
+
+}
+
+
+function closeQrModal() {
+
+  document.getElementById("qr-modal").classList.add("hidden");
+
+}
+
+
+/* =========================================
+   14. 管理員一鍵全簽
+========================================= */
+
+function bulkCheckIn() {
+
+  const timeStr = getTimeString();
+
+  const status = getAttendanceStatus(timeStr);
+
+  let added = 0;
+
+  students.forEach(student => {
+
+    if (!attendance[student.id]) {
+
+      attendance[student.id] = {
+
+        time: timeStr,
+
+        status: status
+
+      };
+
+      added++;
+
+    }
+
+  });
+
+  saveAttendance();
+
+  alert(`一鍵全簽完成！\n新增簽到：${added} 人`);
+
+}
+
+
+/* =========================================
+   15. 重置今日點名
+========================================= */
+
+function resetAttendance() {
+
+  if (!confirm("確定要清空今日所有的點名紀錄嗎？")) {
+    return;
+  }
+
+  attendance = {};
+
+  saveAttendance();
+
+  alert("今日點名紀錄已重置。");
+
+}
+
+
+/* =========================================
+   16. 編輯學生名冊
+========================================= */
+
+function editStudents() {
+
+  const currentList = students
+    .map(s => `${s.id},${s.name}`)
+    .join("\n");
+
+  const input = prompt(
+    "請編輯學生名冊（每行格式：座號,姓名）",
+    currentList
+  );
+
+  if (input === null) {
+    return;
+  }
+
+  const lines = input.split("\n");
+
+  const newList = [];
+
+  const usedIds = new Set();
+
+  for (const line of lines) {
+
+    if (!line.trim()) {
+      continue;
+    }
+
+    const parts = line.split(",");
+
+    if (parts.length < 2) {
+      continue;
+    }
+
+    const id = parseInt(parts[0].trim(), 10);
+
+    const name = parts.slice(1).join(",").trim();
+
+    if (
+      !Number.isInteger(id) ||
+      id < 1 ||
+      !name ||
+      usedIds.has(id)
+    ) {
+
+      alert(`名單格式錯誤或座號重複：${line}`);
+
+      return;
+
+    }
+
+    usedIds.add(id);
+
+    newList.push({
+
+      id: id,
+
+      name: name
+
+    });
+
+  }
+
+  if (newList.length === 0) {
+
+    alert("學生名單不能為空！");
+
+    return;
+
+  }
+
+  students = newList;
+
+  localStorage.setItem(
+    "qp807_students",
+    JSON.stringify(students)
+  );
+
+  render();
+
+  alert("學生名冊更新成功！");
+
+}
+
+
+/* =========================================
+   17. 模擬時間
+========================================= */
+
+function toggleSimulate() {
+
+  document.getElementById("sim-panel")
+    .classList.toggle("hidden");
+
+}
+
+
+function applySimTime() {
+
+  const val = document.getElementById("sim-time-input").value;
+
+  if (!val) {
+
+    alert("請先選擇模擬時間！");
+
+    return;
+
+  }
+
+  const today = new Date();
+
+  const parts = val.split(":");
+
+  today.setHours(
+    parseInt(parts[0], 10),
+    parseInt(parts[1], 10),
+    0,
+    0
+  );
+
+  simTime = today;
+
+  isSimulating = true;
+
+  initAttendance();
+
+  render();
+
+  updateClock();
+
+  alert(`目前已切換至模擬時間：${val}`);
+
+}
+
+
+function disableSimTime() {
+
+  isSimulating = false;
+
+  simTime = null;
+
+  document.getElementById("sim-panel")
+    .classList.add("hidden");
+
+  initAttendance();
+
+  render();
+
+  updateClock();
+
+  alert("已恢復真實系統時間。");
+
+}
+
+
+/* =========================================
+   18. 匯出 CSV
+========================================= */
+
+function exportData() {
+
+  const now = getNow();
+
+  let csv = "\uFEFF座號,姓名,簽到狀態,簽到時間\n";
+
+  students.forEach(student => {
+
+    const record = attendance[student.id];
+
+    let status = "未簽到";
+
+    let time = "--:--:--";
+
+    if (record) {
+
+      status =
+        record.status === "on-time"
+          ? "準時"
+          : "遲到";
+
+      time = record.time;
+
+    }
+
+    csv +=
+      `${student.id},${student.name},${status},${time}\n`;
+
+  });
+
+  const blob = new Blob(
+    [csv],
+    { type: "text/csv;charset=utf-8;" }
+  );
+
+  const link = document.createElement("a");
+
+  const url = URL.createObjectURL(blob);
+
+  link.href = url;
+
+  link.download =
+    `807_點名紀錄_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}.csv`;
+
+  document.body.appendChild(link);
+
+  link.click();
+
+  link.remove();
+
+  URL.revokeObjectURL(url);
+
+}
+
+
+/* =========================================
+   19. 更新即時時鐘
+========================================= */
+
+function updateClock() {
+
+  const now = getNow();
+
+  const days = [
+    "日", "一", "二", "三", "四", "五", "六"
+  ];
+
+  document.getElementById("current-date").innerText =
+
+    `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")} (${days[now.getDay()]})`;
+
+  document.getElementById("current-time").innerText =
+
+    now.toTimeString().split(" ")[0];
+
+}
+
+
+/* =========================================
+   20. 名冊顯示
+   注意：此處完全沒有學生簽到按鈕
+========================================= */
+
+function render() {
+
+  let onTimeCount = 0;
+
+  let lateCount = 0;
+
+  const grid = document.getElementById("student-grid");
+
+  grid.innerHTML = "";
+
+  students.forEach(student => {
+
+    const record = attendance[student.id];
+
+    let cardBg =
+      "bg-white border-slate-200";
+
+    let badge = "";
+
+    let statusText = "尚未簽到";
+
+    let statusStyle =
+      "text-slate-500 bg-slate-100";
+
+    if (record) {
+
+      if (record.status === "on-time") {
+
+        onTimeCount++;
+
+        cardBg =
+          "bg-emerald-50 border-emerald-200";
+
+        statusText =
+          `✓ 準時 ${record.time}`;
+
+        statusStyle =
+          "text-emerald-700 bg-emerald-100";
+
+      } else {
+
+        lateCount++;
+
+        cardBg =
+          "bg-amber-50 border-amber-200";
+
+        statusText =
+          `⚠ 遲到 ${record.time}`;
+
+        statusStyle =
+          "text-amber-700 bg-amber-100";
+
+      }
+
+    }
+
+    const card = document.createElement("div");
+
+    card.className =
+      `p-4 rounded-2xl border shadow-sm flex flex-col justify-between min-h-32 ${cardBg}`;
+
+    const top = document.createElement("div");
+
+    top.className = "flex items-center justify-between mb-3";
+
+    const number = document.createElement("span");
+
+    number.className =
+      "w-7 h-7 rounded-full bg-slate-100 text-slate-700 text-xs font-bold flex items-center justify-center";
+
+    number.innerText = student.id;
+
+    const status = document.createElement("span");
+
+    status.className =
+      `text-[10px] font-bold px-2 py-1 rounded-full ${statusStyle}`;
+
+    status.innerText = record ? statusText : "未簽到";
+
+    top.appendChild(number);
+
+    top.appendChild(status);
+
+    const name = document.createElement("div");
+
+    name.className =
+      "text-lg font-bold text-slate-900 tracking-tight";
+
+    name.innerText = student.name;
+
+    const method = document.createElement("div");
+
+    method.className =
+      "text-[10px] text-slate-400 mt-2";
+
+    method.innerText =
+      record ? "QR Code 掃描完成" : "等待 QR Code 掃描";
+
+    card.appendChild(top);
+
+    card.appendChild(name);
+
+    card.appendChild(method);
+
+    grid.appendChild(card);
+
+  });
+
+  document.getElementById("count-total").innerText =
+    students.length;
+
+  document.getElementById("count-on-time").innerText =
+    onTimeCount;
+
+  document.getElementById("count-late").innerText =
+    lateCount;
+
+  document.getElementById("count-absent").innerText =
+    students.length - onTimeCount - lateCount;
+
+}
+
+
+/* =========================================
+   21. 系統初始化
+========================================= */
+
+function init() {
+
+  initAttendance();
+
+  render();
+
+  updateClock();
+
+  setInterval(updateClock, 1000);
+
+}
+
+
+/* 啟動系統 */
+
+init();
+
+</script>
+
+</body>
+</html>
