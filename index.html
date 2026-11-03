@@ -24,6 +24,81 @@
       border-radius: 12px;
     }
 
+    /* 全螢幕簽到成功畫面 */
+    #checkin-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(15, 23, 42, 0.97);
+      color: white;
+      text-align: center;
+    }
+
+    #checkin-overlay.show {
+      display: flex;
+    }
+
+    #checkin-overlay .checkin-content {
+      width: 100%;
+      max-width: 700px;
+      animation: checkinAppear 0.35s ease-out;
+    }
+
+    @keyframes checkinAppear {
+      from {
+        opacity: 0;
+        transform: scale(0.88);
+      }
+
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    #checkin-overlay .checkin-number {
+      font-size: clamp(80px, 18vw, 150px);
+      line-height: 1.1;
+      font-weight: 900;
+      letter-spacing: 4px;
+    }
+
+    #checkin-overlay .checkin-name {
+      font-size: clamp(30px, 7vw, 54px);
+      font-weight: 800;
+      margin-top: 12px;
+    }
+
+    #checkin-overlay .checkin-result {
+      font-size: clamp(36px, 8vw, 64px);
+      font-weight: 900;
+      margin-top: 30px;
+    }
+
+    #checkin-overlay .checkin-status {
+      font-size: clamp(28px, 6vw, 46px);
+      font-weight: 800;
+      margin-top: 12px;
+    }
+
+    #checkin-overlay .checkin-time {
+      font-size: clamp(30px, 7vw, 52px);
+      font-family: monospace;
+      font-weight: 800;
+      margin-top: 30px;
+      letter-spacing: 3px;
+    }
+
+    #checkin-overlay .checkin-hint {
+      font-size: 16px;
+      color: #cbd5e1;
+      margin-top: 45px;
+    }
+
     @media print {
       @page {
         size: A4;
@@ -63,6 +138,41 @@
 </head>
 
 <body class="bg-slate-50 text-slate-800 min-h-screen pb-12 font-sans">
+
+  <!-- 全螢幕簽到結果 -->
+  <div id="checkin-overlay" aria-live="assertive">
+    <div class="checkin-content">
+
+      <div class="text-lg sm:text-2xl font-bold text-slate-300 tracking-widest">
+        QP807 · 807 班早晨點名
+      </div>
+
+      <div id="checkin-number" class="checkin-number mt-8">
+        12
+      </div>
+
+      <div id="checkin-name" class="checkin-name">
+        董瑞德
+      </div>
+
+      <div class="checkin-result">
+        簽到成功！
+      </div>
+
+      <div id="checkin-status" class="checkin-status text-emerald-400">
+        ✓ 準時
+      </div>
+
+      <div id="checkin-time" class="checkin-time">
+        07:46:32
+      </div>
+
+      <div class="checkin-hint">
+        🔊 正在朗讀簽到結果，請稍候……
+      </div>
+
+    </div>
+  </div>
 
   <!-- 頂部導覽列 -->
   <header class="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
@@ -158,8 +268,9 @@
             <ul class="list-disc pl-5 space-y-1">
               <li>請將學生專屬 QR Code 對準攝影機。</li>
               <li>系統自動辨識座號並完成簽到。</li>
-              <li>成功後會發出提示音。</li>
-              <li>每次掃描後有 3 秒冷卻時間。</li>
+              <li>成功後會發出提示音並語音朗讀簽到結果。</li>
+              <li>朗讀期間會全螢幕顯示簽到資訊，暫停掃描。</li>
+              <li>語音朗讀結束後自動恢復掃描。</li>
               <li>已簽到學生再次掃描不會重複紀錄。</li>
               <li>學生不能透過點擊名冊自行簽到。</li>
             </ul>
@@ -360,7 +471,6 @@
 
         <div class="flex items-center gap-3">
 
-          <!-- 原列印按鈕改為 PDF 下載 -->
           <button
             id="pdf-download-btn"
             onclick="downloadQrPdf()"
@@ -454,6 +564,15 @@ let simTime = null;
 let html5QrcodeScanner = null;
 let isCameraOpen = false;
 let scanCoolDown = false;
+
+// 是否正在播放簽到語音
+let isAnnouncementPlaying = false;
+
+// 目前的語音播放物件
+let currentSpeech = null;
+
+// 語音安全逾時計時器
+let speechWatchdog = null;
 
 
 /* =========================================
@@ -626,7 +745,8 @@ function validateQrCode(decodedText) {
 
 function handleQrCodeScan(decodedText) {
 
-  if (scanCoolDown) {
+  // 語音朗讀或冷卻期間禁止掃描
+  if (scanCoolDown || isAnnouncementPlaying) {
     return;
   }
 
@@ -669,7 +789,13 @@ function handleQrCodeScan(decodedText) {
 
   }
 
-  /* 新增簽到 */
+  /*
+    新增簽到
+    先鎖定掃描，避免同一張 QR Code 被連續讀取。
+  */
+
+  scanCoolDown = true;
+  isAnnouncementPlaying = true;
 
   const timeStr = getTimeString();
 
@@ -685,6 +811,7 @@ function handleQrCodeScan(decodedText) {
 
   saveAttendance();
 
+  // 播放提示音
   playBeep();
 
   if (status === "late") {
@@ -705,7 +832,8 @@ function handleQrCodeScan(decodedText) {
 
   }
 
-  startCooldown();
+  // 顯示全螢幕並朗讀
+  showCheckInAnnouncement(student, status, timeStr);
 
 }
 
@@ -720,7 +848,10 @@ function startCooldown() {
 
   setTimeout(() => {
 
-    scanCoolDown = false;
+    // 如果正在朗讀，不可以解除掃描鎖定
+    if (!isAnnouncementPlaying) {
+      scanCoolDown = false;
+    }
 
   }, COOLDOWN_MS);
 
@@ -742,6 +873,8 @@ function playBeep() {
 
     const osc = ctx.createOscillator();
 
+    const gain = ctx.createGain();
+
     osc.type = "sine";
 
     osc.frequency.setValueAtTime(
@@ -749,11 +882,22 @@ function playBeep() {
       ctx.currentTime
     );
 
-    osc.connect(ctx.destination);
+    gain.gain.setValueAtTime(
+      0.3,
+      ctx.currentTime
+    );
+
+    osc.connect(gain);
+
+    gain.connect(ctx.destination);
 
     osc.start();
 
     osc.stop(ctx.currentTime + 0.15);
+
+    osc.onended = function() {
+      ctx.close();
+    };
 
   } catch (error) {
 
@@ -765,7 +909,225 @@ function playBeep() {
 
 
 /* =========================================
-   12. 開啟與關閉鏡頭
+   12. 全螢幕簽到結果與語音朗讀
+========================================= */
+
+// 將時間轉換成語音容易朗讀的格式
+function getSpeakTime(timeStr) {
+
+  const parts = timeStr.split(":");
+
+  const hour = parseInt(parts[0], 10);
+  const minute = parseInt(parts[1], 10);
+  const second = parseInt(parts[2], 10);
+
+  return `${hour}點${minute}分${second}秒`;
+
+}
+
+
+// 顯示全螢幕簽到畫面
+function showCheckInAnnouncement(student, status, timeStr) {
+
+  const overlay = document.getElementById("checkin-overlay");
+
+  const numberElem = document.getElementById("checkin-number");
+
+  const nameElem = document.getElementById("checkin-name");
+
+  const statusElem = document.getElementById("checkin-status");
+
+  const timeElem = document.getElementById("checkin-time");
+
+  const hintElem = overlay.querySelector(".checkin-hint");
+
+  // 顯示座號
+  numberElem.innerText = `${student.id} 號`;
+
+  // 顯示姓名
+  nameElem.innerText = student.name;
+
+  // 顯示準時或遲到
+  if (status === "late") {
+
+    statusElem.innerText = "⚠ 遲到";
+
+    statusElem.className =
+      "checkin-status text-amber-400";
+
+  } else {
+
+    statusElem.innerText = "✓ 準時";
+
+    statusElem.className =
+      "checkin-status text-emerald-400";
+
+  }
+
+  // 顯示時間
+  timeElem.innerText = timeStr;
+
+  // 顯示全螢幕畫面
+  overlay.classList.add("show");
+
+  // 組合語音內容
+  const statusText = status === "late" ? "遲到" : "準時";
+
+  const speakTime = getSpeakTime(timeStr);
+
+  const speechText =
+    `${student.id}號，簽到成功，${statusText}，${speakTime}`;
+
+  // 開始語音朗讀
+  speakCheckInResult(speechText, hintElem);
+
+}
+
+
+// 語音朗讀
+function speakCheckInResult(text, hintElem) {
+
+  // 裝置不支援語音時，使用備援顯示時間
+  if (!("speechSynthesis" in window) ||
+      !("SpeechSynthesisUtterance" in window)) {
+
+    hintElem.innerText =
+      "語音功能不受支援，畫面即將自動關閉……";
+
+    setTimeout(() => {
+      finishAnnouncement();
+    }, 4000);
+
+    return;
+
+  }
+
+  try {
+
+    // 清除先前可能殘留的語音
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+
+    currentSpeech = utterance;
+
+    // 使用繁體中文語音
+    utterance.lang = "zh-TW";
+
+    // 語速
+    utterance.rate = 0.9;
+
+    // 音調
+    utterance.pitch = 1.0;
+
+    // 音量
+    utterance.volume = 1.0;
+
+    let hasFinished = false;
+
+    // 語音正常結束
+    utterance.onend = function() {
+
+      if (hasFinished) return;
+
+      hasFinished = true;
+
+      clearTimeout(speechWatchdog);
+
+      hintElem.innerText = "✓ 朗讀完成，準備繼續掃描……";
+
+      setTimeout(() => {
+        finishAnnouncement();
+      }, 500);
+
+    };
+
+    // 語音發生錯誤
+    utterance.onerror = function(event) {
+
+      console.error("語音播放錯誤：", event);
+
+      if (hasFinished) return;
+
+      hasFinished = true;
+
+      clearTimeout(speechWatchdog);
+
+      hintElem.innerText =
+        "語音播放遇到問題，準備繼續掃描……";
+
+      setTimeout(() => {
+        finishAnnouncement();
+      }, 2000);
+
+    };
+
+    // 安全保護：避免瀏覽器沒有回傳語音結束事件而卡住
+    speechWatchdog = setTimeout(() => {
+
+      if (hasFinished) return;
+
+      hasFinished = true;
+
+      window.speechSynthesis.cancel();
+
+      hintElem.innerText =
+        "朗讀時間已結束，準備繼續掃描……";
+
+      finishAnnouncement();
+
+    }, 30000);
+
+    // 開始朗讀
+    window.speechSynthesis.speak(utterance);
+
+  } catch (error) {
+
+    console.error("無法啟動語音朗讀：", error);
+
+    hintElem.innerText =
+      "無法播放語音，準備繼續掃描……";
+
+    setTimeout(() => {
+      finishAnnouncement();
+    }, 2000);
+
+  }
+
+}
+
+
+// 語音結束後關閉全螢幕並恢復掃描
+function finishAnnouncement() {
+
+  clearTimeout(speechWatchdog);
+
+  speechWatchdog = null;
+
+  currentSpeech = null;
+
+  const overlay = document.getElementById("checkin-overlay");
+
+  overlay.classList.remove("show");
+
+  isAnnouncementPlaying = false;
+
+  // 語音結束後稍微等待，避免同一張 QR Code 再次觸發
+  setTimeout(() => {
+
+    if (!isAnnouncementPlaying && isCameraOpen) {
+
+      scanCoolDown = false;
+
+    }
+
+  }, 500);
+
+}
+
+
+/* =========================================
+   13. 開啟與關閉鏡頭
 ========================================= */
 
 async function toggleCamera() {
@@ -859,6 +1221,23 @@ async function stopCamera() {
 
   const btnText = document.getElementById("camera-btn-text");
 
+  // 停止語音朗讀
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+  }
+
+  clearTimeout(speechWatchdog);
+
+  speechWatchdog = null;
+
+  currentSpeech = null;
+
+  isAnnouncementPlaying = false;
+
+  // 關閉全螢幕簽到畫面
+  document.getElementById("checkin-overlay")
+    .classList.remove("show");
+
   if (html5QrcodeScanner) {
 
     try {
@@ -893,7 +1272,7 @@ async function stopCamera() {
 
 
 /* =========================================
-   13. 產生學生 QR Code
+   14. 產生學生 QR Code
 ========================================= */
 
 function openQrModal() {
@@ -977,7 +1356,7 @@ function closeQrModal() {
 
 
 /* =========================================
-   14. PDF 匯出功能
+   15. PDF 匯出功能
    A4 直式，每頁 4 欄 × 4 列
    每頁 16 張，31 人共 2 頁
 ========================================= */
@@ -1189,7 +1568,7 @@ async function downloadQrPdf() {
 
 
 /* =========================================
-   15. 管理員一鍵全簽
+   16. 管理員一鍵全簽
 ========================================= */
 
 function bulkCheckIn() {
@@ -1226,7 +1605,7 @@ function bulkCheckIn() {
 
 
 /* =========================================
-   16. 重置今日點名
+   17. 重置今日點名
 ========================================= */
 
 function resetAttendance() {
@@ -1245,7 +1624,7 @@ function resetAttendance() {
 
 
 /* =========================================
-   17. 編輯學生名冊
+   18. 編輯學生名冊
 ========================================= */
 
 function editStudents() {
@@ -1333,7 +1712,7 @@ function editStudents() {
 
 
 /* =========================================
-   18. 模擬時間
+   19. 模擬時間
 ========================================= */
 
 function toggleSimulate() {
@@ -1403,7 +1782,7 @@ function disableSimTime() {
 
 
 /* =========================================
-   19. 匯出 CSV
+   20. 匯出 CSV
 ========================================= */
 
 function exportData() {
@@ -1462,7 +1841,7 @@ function exportData() {
 
 
 /* =========================================
-   20. 更新即時時鐘
+   21. 更新即時時鐘
 ========================================= */
 
 function updateClock() {
@@ -1485,7 +1864,7 @@ function updateClock() {
 
 
 /* =========================================
-   21. 名冊顯示
+   22. 名冊顯示
    注意：此處完全沒有學生簽到按鈕
 ========================================= */
 
@@ -1613,7 +1992,7 @@ function render() {
 
 
 /* =========================================
-   22. 系統初始化
+   23. 系統初始化
 ========================================= */
 
 function init() {
