@@ -176,19 +176,34 @@
   <div id="fullscreen-blocker">
     <div class="max-w-md space-y-6">
       <div class="text-6xl animate-bounce">🖥️</div>
-      <h2 class="text-3xl font-extrabold text-white">請切換至全螢幕模式</h2>
+      <h2 class="text-3xl font-extrabold text-white">807 班點名系統</h2>
       <p class="text-slate-300 text-sm leading-relaxed">
-        本系統要求在全螢幕狀態下進行早晨點名作業。<br>
-        點擊下方按鈕或點擊畫面任意處即可進入全螢幕。
+        點擊下方按鈕即可切換至全螢幕模式進行點名作業。<br>
+        若您的設備或環境不支援全螢幕，可直接點擊「略過限制進入系統」。
       </p>
-      <button 
-        onclick="requestFullscreenMode()"
-        class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 px-6 rounded-2xl shadow-lg transition active:scale-95"
-      >
-        進入全螢幕系統
-      </button>
-      <p class="text-xs text-slate-400">
-        快捷解鎖說明：管理員按下 <kbd class="px-1.5 py-0.5 bg-slate-800 text-slate-200 rounded border border-slate-700">Ctrl</kbd> + <kbd class="px-1.5 py-0.5 bg-slate-800 text-slate-200 rounded border border-slate-700">Alt</kbd> + <kbd class="px-1.5 py-0.5 bg-slate-800 text-slate-200 rounded border border-slate-700">F2</kbd> 可解除強制全螢幕。
+      
+      <div class="space-y-3">
+        <!-- 優先嘗試原生全螢幕，若受限則自動滿版進入 -->
+        <button 
+          id="enter-fs-btn"
+          onclick="handleUserEnterFullscreen()"
+          class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 px-6 rounded-2xl shadow-lg transition active:scale-95 flex items-center justify-center gap-2 text-base"
+        >
+          <span>🖥️</span>
+          <span>進入全螢幕系統</span>
+        </button>
+
+        <!-- 備用直入通道，保證 100% 絕不卡死 -->
+        <button 
+          onclick="bypassFullscreen()"
+          class="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium py-2.5 px-6 rounded-2xl border border-slate-700 transition text-xs"
+        >
+          直接進入系統（略過全螢幕限制）
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-400 pt-2">
+        快捷解鎖說明：管理員按下 <kbd class="px-1.5 py-0.5 bg-slate-800 text-slate-200 rounded border border-slate-700">Ctrl</kbd> + <kbd class="px-1.5 py-0.5 bg-slate-800 text-slate-200 rounded border border-slate-700">Alt</kbd> + <kbd class="px-1.5 py-0.5 bg-slate-800 text-slate-200 rounded border border-slate-700">F2</kbd> 可開關全螢幕鎖定。
       </p>
     </div>
   </div>
@@ -721,4 +736,1556 @@
         </label>
       </div>
 
-      <div class="pt-3 border-t border-slate-100 flex justify
+      <div class="pt-3 border-t border-slate-100 flex justify-end gap-2">
+        <button onclick="closeFaceSettingsModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl">
+          取消
+        </button>
+        <button onclick="saveFaceSettings()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl">
+          儲存設定
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR Code 列印視窗 -->
+  <div
+    id="qr-modal"
+    class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
+  >
+
+    <div class="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl">
+
+      <div class="p-5 border-b border-slate-200 flex items-center justify-between no-print">
+
+        <div>
+          <h3 class="text-lg font-bold text-slate-900">
+            807 班學生 QR Code 簽到標籤
+          </h3>
+
+          <p class="text-xs text-slate-500">
+            列印後可剪下貼於學生聯絡簿或識別卡上
+          </p>
+        </div>
+
+        <div class="flex items-center gap-3">
+
+          <button
+            id="pdf-download-btn"
+            onclick="downloadQrPdf()"
+            class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl transition shadow-sm"
+          >
+            📄 下載 PDF (A4)
+          </button>
+
+          <button
+            onclick="closeQrModal()"
+            class="text-slate-400 hover:text-slate-600 text-lg font-bold p-1"
+          >
+            ✕
+          </button>
+
+        </div>
+      </div>
+
+      <div class="p-6 overflow-y-auto flex-1">
+
+        <div
+          id="qr-print-area"
+          class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"
+        ></div>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+
+/* =========================================
+   1. 系統基本設定
+========================================= */
+
+const ADMIN_PASS = "qpjh807";
+const LATE_TIME = "07:46:00";
+const COOLDOWN_MS = 2500;
+
+// 人臉辨識靈敏度模式：'strict' (嚴格) | 'standard' (標準) | 'disabled' (停用)
+let faceDetectionMode = localStorage.getItem("qp807_face_mode") || "strict";
+
+
+/* =========================================
+   2. 807 班學生名單
+========================================= */
+
+const defaultStudents = [
+  { id: 1, name: "王子濬" },
+  { id: 2, name: "何宥弘" },
+  { id: 3, name: "吳慕祈" },
+  { id: 4, name: "呂品澄" },
+  { id: 5, name: "李悅誠" },
+  { id: 6, name: "袁明應" },
+  { id: 7, name: "郭承奕" },
+  { id: 8, name: "陳紘紳" },
+  { id: 9, name: "陳櫂銘" },
+  { id: 10, name: "彭宥盛" },
+  { id: 11, name: "曾晨熙" },
+  { id: 12, name: "董瑞德" },
+  { id: 13, name: "詹竤安" },
+  { id: 14, name: "劉裕翔" },
+  { id: 15, name: "潘品叡" },
+  { id: 16, name: "蘇宥鉦" },
+  { id: 21, name: "仲妍霏" },
+  { id: 22, name: "沈昕樂" },
+  { id: 23, name: "林星吟" },
+  { id: 24, name: "范佳萱" },
+  { id: 25, name: "徐安葳" },
+  { id: 26, name: "浦文珏" },
+  { id: 27, name: "連雨婕" },
+  { id: 28, name: "陳星言" },
+  { id: 29, name: "陳儀安" },
+  { id: 30, name: "黃詠芊" },
+  { id: 31, name: "萬珈寧" },
+  { id: 32, name: "褚維恩" },
+  { id: 33, name: "劉雨緁" },
+  { id: 34, name: "戴芙寧" },
+  { id: 35, name: "薛尹柔" }
+];
+
+
+/* =========================================
+   3. 系統變數
+========================================= */
+
+let students = loadStudents();
+
+// 點名紀錄字典：attendance[id] = { time, status, photo }
+let attendance = {};
+
+let isSimulating = false;
+let simTime = null;
+
+let html5QrcodeScanner = null;
+let isCameraOpen = false;
+let scanCoolDown = false;
+
+// 簽到結果播音控制
+let isAnnouncementPlaying = false;
+let currentSpeech = null;
+let speechWatchdog = null;
+
+// 全螢幕開關控制
+let enforceFullscreenEnabled = true;
+let isUserBypassedFullscreen = false;
+
+
+/* =========================================
+   4. 讀取學生名單
+========================================= */
+
+function loadStudents() {
+  try {
+    const saved = localStorage.getItem("qp807_students");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (error) {
+    console.error("讀取學生名單失敗", error);
+  }
+  return defaultStudents.map(s => ({ ...s }));
+}
+
+
+/* =========================================
+   5. 日期與時間計算
+========================================= */
+
+function getNow() {
+  if (isSimulating && simTime) {
+    return new Date(simTime);
+  }
+  return new Date();
+}
+
+function getTodayKey() {
+  const now = getNow();
+  return `qp807_att_${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+}
+
+function getTimeString() {
+  const now = getNow();
+  return [
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+    String(now.getSeconds()).padStart(2, "0")
+  ].join(":");
+}
+
+function getAttendanceStatus(time) {
+  return time > LATE_TIME ? "late" : "on-time";
+}
+
+
+/* =========================================
+   6. 點名紀錄存取
+========================================= */
+
+function initAttendance() {
+  try {
+    attendance = JSON.parse(
+      localStorage.getItem(getTodayKey())
+    ) || {};
+  } catch (error) {
+    console.warn("讀取今日紀錄失敗，初始化為空", error);
+    attendance = {};
+  }
+}
+
+function saveAttendance() {
+  try {
+    localStorage.setItem(
+      getTodayKey(),
+      JSON.stringify(attendance)
+    );
+  } catch (e) {
+    console.warn("LocalStorage 儲存警報，嘗試保留縮圖", e);
+    try {
+      const copy = { ...attendance };
+      localStorage.setItem(getTodayKey(), JSON.stringify(copy));
+    } catch (err) {}
+  }
+  render();
+}
+
+
+/* =========================================
+   7. 管理員驗證
+========================================= */
+
+function protectedAction(action) {
+  const pass = prompt("請輸入管理者密碼：");
+  if (pass === ADMIN_PASS) {
+    action();
+  } else if (pass !== null) {
+    alert("密碼錯誤！");
+  }
+}
+
+
+/* =========================================
+   8. QR Code 格式驗證
+========================================= */
+
+function validateQrCode(decodedText) {
+  const match = String(decodedText).trim().match(/^QP807-(\d{2})$/i);
+  if (!match) {
+    return null;
+  }
+
+  const studentId = parseInt(match[1], 10);
+  const student = students.find(
+    s => Number(s.id) === studentId
+  );
+
+  return student || null;
+}
+
+
+/* =========================================
+   9. 人臉辨識核心邏輯 (多層次強固檢驗)
+========================================= */
+
+async function verifyFaceInFrame(canvas, video) {
+  if (faceDetectionMode === "disabled") {
+    return { passed: true, box: null, reason: "人臉辨識已略過" };
+  }
+
+  const width = canvas.width;
+  const height = canvas.height;
+
+  // 1. 原生 FaceDetector API
+  if ('FaceDetector' in window) {
+    try {
+      const detector = new FaceDetector({ fastMode: false, maxDetectedFaces: 2 });
+      const faces = await detector.detect(canvas);
+
+      if (faces && faces.length > 0) {
+        for (const face of faces) {
+          const b = face.boundingBox;
+          const isLargeEnough = b.width >= Math.min(width, height) * 0.12 && b.height >= 55;
+          const isNotClipped = b.top > -20 && b.left > -20 && (b.left + b.width) < (width + 20);
+
+          if (isLargeEnough && isNotClipped) {
+            return {
+              passed: true,
+              box: { x: b.x, y: b.y, width: b.width, height: b.height },
+              method: "native-FaceDetector"
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("原生 FaceDetector 偵測略過，轉用內建演算法:", e);
+    }
+  }
+
+  // 2. tracking.js ViolaJones Haar 特徵分類器
+  if (window.tracking && tracking.ViolaJones && tracking.ViolaJones.classifiers && tracking.ViolaJones.classifiers.face) {
+    try {
+      const scaleCanvas = document.createElement("canvas");
+      const targetW = 320;
+      const scale = targetW / width;
+      scaleCanvas.width = targetW;
+      scaleCanvas.height = Math.round(height * scale);
+
+      const sCtx = scaleCanvas.getContext("2d");
+      sCtx.drawImage(canvas, 0, 0, scaleCanvas.width, scaleCanvas.height);
+      const imgData = sCtx.getImageData(0, 0, scaleCanvas.width, scaleCanvas.height);
+
+      const rects = tracking.ViolaJones.detect(
+        imgData.data,
+        scaleCanvas.width,
+        scaleCanvas.height,
+        1.7,
+        1.25,
+        1.5,
+        0.1,
+        tracking.ViolaJones.classifiers.face
+      );
+
+      if (rects && rects.length > 0) {
+        rects.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+        const best = rects[0];
+        const origW = best.width / scale;
+        const origH = best.height / scale;
+
+        if (origW >= Math.min(width, height) * 0.12 && origH >= 55) {
+          return {
+            passed: true,
+            box: {
+              x: best.x / scale,
+              y: best.y / scale,
+              width: origW,
+              height: origH
+            },
+            method: "tracking-ViolaJones"
+          };
+        }
+      }
+    } catch (err) {
+      console.warn("ViolaJones 演算法異常:", err);
+    }
+  }
+
+  // 3. 標準模式膚色橢圓備援比對
+  if (faceDetectionMode === "standard") {
+    const skinCheck = analyzeSkinToneContour(canvas);
+    if (skinCheck.passed) {
+      return {
+        passed: true,
+        box: skinCheck.box,
+        method: "skin-contour-analysis"
+      };
+    }
+  }
+
+  return {
+    passed: false,
+    reason: "未在畫面中檢測到完整人臉"
+  };
+}
+
+function analyzeSkinToneContour(canvas) {
+  const w = 160;
+  const h = 120;
+  const temp = document.createElement("canvas");
+  temp.width = w;
+  temp.height = h;
+  const ctx = temp.getContext("2d");
+  ctx.drawImage(canvas, 0, 0, w, h);
+  const data = ctx.getImageData(0, 0, w, h).data;
+
+  let skinPixels = 0;
+  let minX = w, maxX = 0, minY = h, maxY = 0;
+
+  for (let y = Math.floor(h * 0.08); y < Math.floor(h * 0.85); y++) {
+    for (let x = Math.floor(w * 0.15); x < Math.floor(w * 0.85); x++) {
+      const idx = (y * w + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+
+      if (r > 95 && g > 40 && b > 20 &&
+          (Math.max(r, g, b) - Math.min(r, g, b)) > 15 &&
+          Math.abs(r - g) > 15 && r > g && r > b) {
+        skinPixels++;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  const regionW = maxX - minX;
+  const regionH = maxY - minY;
+  const totalSampleArea = (w * 0.7) * (h * 0.77);
+
+  if (skinPixels >= totalSampleArea * 0.12 && regionH > 25 && (regionH / regionW) >= 0.75) {
+    const scaleX = canvas.width / w;
+    const scaleY = canvas.height / h;
+    return {
+      passed: true,
+      box: {
+        x: minX * scaleX,
+        y: minY * scaleY,
+        width: regionW * scaleX,
+        height: regionH * scaleY
+      }
+    };
+  }
+
+  return { passed: false };
+}
+
+function createStampedPhoto(sourceCanvas, student, faceBox, timeStr, status) {
+  const targetW = 480;
+  const targetH = Math.round(targetW * (sourceCanvas.height / sourceCanvas.width));
+
+  const stampCanvas = document.createElement("canvas");
+  stampCanvas.width = targetW;
+  stampCanvas.height = targetH;
+  const ctx = stampCanvas.getContext("2d");
+
+  ctx.drawImage(sourceCanvas, 0, 0, targetW, targetH);
+  const scale = targetW / sourceCanvas.width;
+
+  if (faceBox) {
+    const bx = faceBox.x * scale;
+    const by = faceBox.y * scale;
+    const bw = faceBox.width * scale;
+    const bh = faceBox.height * scale;
+
+    ctx.strokeStyle = "#10b981";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(bx, by, bw, bh);
+
+    ctx.fillStyle = "rgba(16, 185, 129, 0.9)";
+    ctx.fillRect(bx, Math.max(0, by - 22), Math.min(130, bw), 22);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 11px sans-serif";
+    ctx.fillText("✓ 人臉辨識通過", bx + 6, Math.max(14, by - 6));
+  }
+
+  const bannerH = 34;
+  ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+  ctx.fillRect(0, targetH - bannerH, targetW, bannerH);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 13px sans-serif";
+  ctx.fillText(`青埔國中 807 班 · ${student.id} 號 ${student.name}`, 12, targetH - 12);
+
+  const statusLabel = status === "late" ? "⚠ 遲到" : "✓ 準時";
+  ctx.fillStyle = status === "late" ? "#fbbf24" : "#34d399";
+  ctx.font = "bold 13px monospace";
+  ctx.fillText(`${timeStr} (${statusLabel})`, targetW - 145, targetH - 12);
+
+  return stampCanvas.toDataURL("image/jpeg", 0.78);
+}
+
+
+/* =========================================
+   10. QR Code 掃描與雙重人臉驗證處理
+========================================= */
+
+async function handleQrCodeScan(decodedText) {
+  if (scanCoolDown || isAnnouncementPlaying) {
+    return;
+  }
+
+  const resultElem = document.getElementById("scan-result");
+  const faceBadge = document.getElementById("face-live-badge");
+
+  const student = validateQrCode(decodedText);
+  if (!student) {
+    resultElem.innerHTML = "❌ <span class='text-rose-600'>無效條碼</span>：請確認是否為 807 班專屬簽到 QR Code。";
+    resultElem.className = "font-semibold text-rose-700 min-h-[32px] flex items-center";
+    playFailBeep();
+    startCooldown(2000);
+    return;
+  }
+
+  const studentId = student.id;
+
+  if (attendance[studentId]) {
+    const record = attendance[studentId];
+    resultElem.innerHTML = `⚠️ <span class="text-amber-700 font-bold">${student.id} 號 ${student.name}</span> 今日已完成簽到（${record.time}）`;
+    resultElem.className = "font-semibold text-amber-700 min-h-[32px] flex items-center";
+    playFailBeep();
+    startCooldown(2000);
+    return;
+  }
+
+  const video = document.querySelector("#reader video");
+  if (!video || video.readyState < 2) {
+    return;
+  }
+
+  const capCanvas = document.createElement("canvas");
+  capCanvas.width = video.videoWidth || 640;
+  capCanvas.height = video.videoHeight || 480;
+  const ctx = capCanvas.getContext("2d");
+  ctx.drawImage(video, 0, 0, capCanvas.width, capCanvas.height);
+
+  faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span><span>人臉比對中...</span>`;
+
+  const faceCheck = await verifyFaceInFrame(capCanvas, video);
+
+  // 🔴 人臉未通過：拒絕簽到
+  if (!faceCheck.passed) {
+    faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span><span class="text-rose-300 font-bold">未偵測到人臉</span>`;
+    resultElem.innerHTML = `❌ <span class="bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded font-bold mr-1">人臉驗證失敗</span> 請將人臉完整對準鏡頭！已讀取到 ${student.name} 的 QR Code，但鏡頭未見完整人臉。`;
+    resultElem.className = "font-semibold text-rose-700 min-h-[32px] flex items-center bg-rose-50 p-2 rounded-xl border border-rose-200";
+
+    playFailBeep();
+    flashCameraContainer("border-rose-500");
+    startCooldown(2200);
+    return;
+  }
+
+  // 🟢 雙重合格：存檔並過關
+  scanCoolDown = true;
+  isAnnouncementPlaying = true;
+
+  faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span class="text-emerald-300 font-bold">人臉通過</span>`;
+
+  const timeStr = getTimeString();
+  const status = getAttendanceStatus(timeStr);
+  const stampedPhoto = createStampedPhoto(capCanvas, student, faceCheck.box, timeStr, status);
+
+  attendance[studentId] = {
+    time: timeStr,
+    status: status,
+    photo: stampedPhoto
+  };
+
+  saveAttendance();
+  playBeep();
+  flashCameraContainer("border-emerald-500");
+
+  if (status === "late") {
+    resultElem.innerHTML = `⚠️ 遲到簽到：<strong class="text-amber-700">${student.id} 號 ${student.name}</strong>（${timeStr}）· 人臉照片已存檔`;
+    resultElem.className = "font-semibold text-amber-700 min-h-[32px] flex items-center";
+  } else {
+    resultElem.innerHTML = `✅ 簽到成功：<strong class="text-emerald-700">${student.id} 號 ${student.name}</strong>（${timeStr}）· 人臉照片已存檔`;
+    resultElem.className = "font-semibold text-emerald-700 min-h-[32px] flex items-center";
+  }
+
+  showCheckInAnnouncement(student, status, timeStr, stampedPhoto);
+}
+
+
+/* =========================================
+   11. 輔助提示與冷卻
+========================================= */
+
+function startCooldown(ms = COOLDOWN_MS) {
+  scanCoolDown = true;
+  setTimeout(() => {
+    if (!isAnnouncementPlaying) {
+      scanCoolDown = false;
+      const faceBadge = document.getElementById("face-live-badge");
+      if (faceBadge && isCameraOpen) {
+        faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span><span>等待人臉與條碼...</span>`;
+      }
+    }
+  }, ms);
+}
+
+function flashCameraContainer(borderColorClass) {
+  const container = document.getElementById("camera-container");
+  container.classList.add(borderColorClass, "ring-4", borderColorClass.replace("border-", "ring-") + "/20");
+  setTimeout(() => {
+    container.classList.remove(borderColorClass, "ring-4", borderColorClass.replace("border-", "ring-") + "/20");
+  }, 1000);
+}
+
+
+/* =========================================
+   12. 音效系統 (成功音 & 失敗警報音)
+========================================= */
+
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(850, ctx.currentTime);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.16);
+    osc.onended = () => ctx.close();
+  } catch (error) {}
+}
+
+function playFailBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(260, ctx.currentTime);
+    osc.frequency.setValueAtTime(190, ctx.currentTime + 0.12);
+
+    gain.gain.setValueAtTime(0.35, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.28);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.3);
+    osc.onended = () => ctx.close();
+  } catch (error) {}
+}
+
+
+/* =========================================
+   13. 全螢幕簽到結果與語音朗讀
+========================================= */
+
+function getSpeakTime(timeStr) {
+  const parts = timeStr.split(":");
+  return `${parseInt(parts[0], 10)}點${parseInt(parts[1], 10)}分${parseInt(parts[2], 10)}秒`;
+}
+
+function showCheckInAnnouncement(student, status, timeStr, photoDataUrl) {
+  const overlay = document.getElementById("checkin-overlay");
+  const numberElem = document.getElementById("checkin-number");
+  const nameElem = document.getElementById("checkin-name");
+  const statusElem = document.getElementById("checkin-status");
+  const timeElem = document.getElementById("checkin-time");
+  const photoElem = document.getElementById("checkin-photo");
+  const hintElem = overlay.querySelector(".checkin-hint");
+
+  numberElem.innerText = `${student.id} 號`;
+  nameElem.innerText = student.name;
+  timeElem.innerText = timeStr;
+
+  if (photoDataUrl) {
+    photoElem.src = photoDataUrl;
+  }
+
+  if (status === "late") {
+    statusElem.innerText = "⚠ 遲到";
+    statusElem.className = "checkin-status text-amber-400";
+  } else {
+    statusElem.innerText = "✓ 準時";
+    statusElem.className = "checkin-status text-emerald-400";
+  }
+
+  overlay.classList.add("show");
+
+  const statusText = status === "late" ? "遲到" : "準時";
+  const speakTime = getSpeakTime(timeStr);
+  const speechText = `${student.id}號，簽到成功，${statusText}，${speakTime}`;
+
+  speakCheckInResult(speechText, hintElem);
+}
+
+function speakCheckInResult(text, hintElem) {
+  if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+    hintElem.innerText = "語音功能不受支援，畫面即將自動關閉……";
+    setTimeout(finishAnnouncement, 3500);
+    return;
+  }
+
+  try {
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    currentSpeech = utterance;
+    utterance.lang = "zh-TW";
+    utterance.rate = 0.95;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+
+    let hasFinished = false;
+
+    utterance.onend = function() {
+      if (hasFinished) return;
+      hasFinished = true;
+      clearTimeout(speechWatchdog);
+      hintElem.innerText = "✓ 朗讀完成，準備繼續掃描……";
+      setTimeout(finishAnnouncement, 400);
+    };
+
+    utterance.onerror = function() {
+      if (hasFinished) return;
+      hasFinished = true;
+      clearTimeout(speechWatchdog);
+      setTimeout(finishAnnouncement, 1500);
+    };
+
+    speechWatchdog = setTimeout(() => {
+      if (hasFinished) return;
+      hasFinished = true;
+      window.speechSynthesis.cancel();
+      finishAnnouncement();
+    }, 15000);
+
+    window.speechSynthesis.speak(utterance);
+  } catch (error) {
+    setTimeout(finishAnnouncement, 2000);
+  }
+}
+
+function finishAnnouncement() {
+  clearTimeout(speechWatchdog);
+  speechWatchdog = null;
+  currentSpeech = null;
+
+  document.getElementById("checkin-overlay").classList.remove("show");
+  isAnnouncementPlaying = false;
+
+  setTimeout(() => {
+    if (!isAnnouncementPlaying && isCameraOpen) {
+      scanCoolDown = false;
+      const faceBadge = document.getElementById("face-live-badge");
+      if (faceBadge) {
+        faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span><span>等待人臉與條碼...</span>`;
+      }
+    }
+  }, 400);
+}
+
+
+/* =========================================
+   14. 開啟與關閉鏡頭
+========================================= */
+
+async function toggleCamera() {
+  const container = document.getElementById("camera-container");
+  const btnText = document.getElementById("camera-btn-text");
+
+  if (isCameraOpen) {
+    await stopCamera();
+    return;
+  }
+
+  container.classList.remove("hidden");
+  btnText.innerText = "關閉鏡頭掃描";
+  isCameraOpen = true;
+
+  document.getElementById("scan-result").innerText = "正在啟動攝影機與人臉辨識引擎...";
+
+  try {
+    html5QrcodeScanner = new Html5Qrcode("reader");
+
+    await html5QrcodeScanner.start(
+      { facingMode: "environment" },
+      {
+        fps: 12,
+        qrbox: function(viewfinderWidth, viewfinderHeight) {
+          const size = Math.min(viewfinderWidth, viewfinderHeight, 260);
+          return { width: size, height: size };
+        },
+        aspectRatio: 1.0,
+        disableFlip: false
+      },
+      handleQrCodeScan,
+      function() {}
+    );
+
+    document.getElementById("scan-result").innerText = "📷 鏡頭已啟動，請學生正對鏡頭出示 QR Code。";
+  } catch (error) {
+    console.error("鏡頭啟動失敗", error);
+    alert("無法開啟鏡頭！\n\n請確認：\n1. 已允許瀏覽器使用攝影機權限。\n2. 網址使用 HTTPS 或 Localhost。\n3. 無其他程式占用鏡頭。");
+    await stopCamera();
+  }
+}
+
+async function stopCamera() {
+  const container = document.getElementById("camera-container");
+  const btnText = document.getElementById("camera-btn-text");
+
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+  }
+
+  clearTimeout(speechWatchdog);
+  speechWatchdog = null;
+  currentSpeech = null;
+  isAnnouncementPlaying = false;
+
+  document.getElementById("checkin-overlay").classList.remove("show");
+
+  if (html5QrcodeScanner) {
+    try {
+      if (html5QrcodeScanner.isScanning) {
+        await html5QrcodeScanner.stop();
+      }
+      html5QrcodeScanner.clear();
+    } catch (error) {}
+    html5QrcodeScanner = null;
+  }
+
+  isCameraOpen = false;
+  scanCoolDown = false;
+  container.classList.add("hidden");
+  btnText.innerText = "開啟鏡頭掃描";
+}
+
+
+/* =========================================
+   15. 產生學生 QR Code (可列印)
+========================================= */
+
+function openQrModal() {
+  const container = document.getElementById("qr-print-area");
+  container.innerHTML = "";
+  document.getElementById("qr-modal").classList.remove("hidden");
+
+  students.forEach(student => {
+    const card = document.createElement("div");
+    card.className = "border-2 border-dashed border-slate-300 p-3 rounded-xl flex flex-col items-center justify-between bg-white text-center";
+
+    const qrId = `qr-${student.id}`;
+
+    const school = document.createElement("div");
+    school.className = "text-xs font-bold text-slate-500 mb-1";
+    school.innerText = "青埔國中 807 班";
+
+    const qrBox = document.createElement("div");
+    qrBox.id = qrId;
+    qrBox.className = "my-2 flex justify-center";
+
+    const name = document.createElement("div");
+    name.className = "text-sm font-bold text-slate-900 mt-1";
+    name.innerText = `${student.id} 號 ${student.name}`;
+
+    const code = document.createElement("div");
+    code.className = "text-xs text-slate-500 mt-1 font-mono";
+    code.innerText = `QP807-${String(student.id).padStart(2, "0")}`;
+
+    card.appendChild(school);
+    card.appendChild(qrBox);
+    card.appendChild(name);
+    card.appendChild(code);
+    container.appendChild(card);
+
+    new QRCode(qrBox, {
+      text: `QP807-${String(student.id).padStart(2, "0")}`,
+      width: 100,
+      height: 100,
+      colorDark: "#0f172a",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.H
+    });
+  });
+}
+
+function closeQrModal() {
+  document.getElementById("qr-modal").classList.add("hidden");
+}
+
+async function downloadQrPdf() {
+  const button = document.getElementById("pdf-download-btn");
+  const area = document.getElementById("qr-print-area");
+  const cards = Array.from(area.children);
+
+  if (cards.length === 0) {
+    alert("目前沒有 QR Code 標籤可供產生！");
+    return;
+  }
+
+  const originalText = button.innerText;
+  button.disabled = true;
+
+  try {
+    button.innerText = "⏳ 正在準備 PDF...";
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    await new Promise(r => setTimeout(r, 400));
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+      compress: true
+    });
+
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const columns = 4;
+    const rows = 4;
+    const perPage = columns * rows;
+    const margin = 8;
+    const gap = 3;
+
+    const cellWidth = (pageWidth - margin * 2 - gap * (columns - 1)) / columns;
+    const cellHeight = (pageHeight - margin * 2 - gap * (rows - 1)) / rows;
+
+    for (let i = 0; i < cards.length; i++) {
+      button.innerText = `⏳ 正在產生標籤 ${i + 1}/${cards.length}`;
+      const card = cards[i];
+
+      const canvas = await html2canvas(card, {
+        scale: 2.8,
+        backgroundColor: "#ffffff",
+        logging: false
+      });
+
+      const imageData = canvas.toDataURL("image/png");
+      if (i > 0 && i % perPage === 0) {
+        pdf.addPage();
+      }
+
+      const index = i % perPage;
+      const col = index % columns;
+      const row = Math.floor(index / columns);
+      const x = margin + col * (cellWidth + gap);
+      const y = margin + row * (cellHeight + gap);
+
+      const ratio = canvas.width / canvas.height;
+      let drawWidth = cellWidth;
+      let drawHeight = drawWidth / ratio;
+
+      if (drawHeight > cellHeight) {
+        drawHeight = cellHeight;
+        drawWidth = drawHeight * ratio;
+      }
+
+      const drawX = x + (cellWidth - drawWidth) / 2;
+      const drawY = y + (cellHeight - drawHeight) / 2;
+
+      pdf.addImage(imageData, "PNG", drawX, drawY, drawWidth, drawHeight, undefined, "FAST");
+    }
+
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    pdf.save(`807_學生QR_Code_${dateStr}.pdf`);
+  } catch (error) {
+    alert("PDF 產生失敗：" + error.message);
+  } finally {
+    button.disabled = false;
+    button.innerText = originalText;
+  }
+}
+
+
+/* =========================================
+   16. 照片存檔與匯出功能 (ZIP / CSV / HTML)
+========================================= */
+
+function openExportModal() {
+  document.getElementById("export-modal").classList.remove("hidden");
+}
+
+function closeExportModal() {
+  document.getElementById("export-modal").classList.add("hidden");
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function buildCsvString() {
+  let csv = "\uFEFF座號,姓名,簽到狀態,簽到時間,人臉驗證照片檔名\n";
+  students.forEach(student => {
+    const record = attendance[student.id];
+    let status = "未簽到";
+    let time = "--:--:--";
+    let photoName = "無照片";
+
+    if (record) {
+      status = record.status === "on-time" ? "準時" : "遲到";
+      time = record.time;
+      if (record.photo) {
+        photoName = `QP807_${String(student.id).padStart(2, "0")}_${student.name}_${status}_${record.time.replace(/:/g, "")}.jpg`;
+      }
+    }
+    csv += `${student.id},${student.name},${status},${time},${photoName}\n`;
+  });
+  return csv;
+}
+
+function exportCsvOnly() {
+  const now = getNow();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+  const csv = buildCsvString();
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  triggerDownload(blob, `807_點名紀錄清冊_${dateStr}.csv`);
+  closeExportModal();
+}
+
+function buildHtmlReport(dateStr) {
+  const now = getNow();
+  let cardsHtml = "";
+
+  students.forEach(student => {
+    const record = attendance[student.id];
+    let statusBadge = `<span style="background:#f1f5f9;color:#64748b;padding:3px 8px;border-radius:12px;font-size:12px;">未簽到</span>`;
+    let timeText = "--:--:--";
+    let photoTag = `<div style="width:100%;height:130px;background:#f8fafc;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:12px;border-radius:8px;">無照片</div>`;
+
+    if (record) {
+      if (record.status === "on-time") {
+        statusBadge = `<span style="background:#dcfce7;color:#15803d;padding:3px 8px;border-radius:12px;font-size:12px;font-weight:bold;">✓ 準時</span>`;
+      } else {
+        statusBadge = `<span style="background:#fef3c7;color:#b45309;padding:3px 8px;border-radius:12px;font-size:12px;font-weight:bold;">⚠ 遲到</span>`;
+      }
+      timeText = record.time;
+
+      if (record.photo) {
+        photoTag = `<img src="${record.photo}" style="width:100%;height:130px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;">`;
+      }
+    }
+
+    cardsHtml += `
+      <div style="border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:#ffffff;display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <strong style="font-size:15px;color:#0f172a;">${student.id} 號 ${student.name}</strong>
+          ${statusBadge}
+        </div>
+        ${photoTag}
+        <div style="font-size:12px;color:#64748b;font-family:monospace;text-align:right;">簽到時間：${timeText}</div>
+      </div>
+    `;
+  });
+
+  return `
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>青埔國中 807 班 早晨點名簽到總表 (${dateStr})</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; background: #f8fafc; color: #1e293b; }
+    .container { max-width: 1080px; margin: 0 auto; background: white; padding: 28px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+    .header { border-bottom: 2px solid #e2e8f0; padding-bottom: 16px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 16px; }
+    @media print { body { padding: 0; background: white; } .container { box-shadow: none; padding: 0; } .no-print { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <h1 style="margin:0;font-size:22px;color:#0f172a;">青埔國中 807 班 · 早晨點名存證總表</h1>
+        <p style="margin:4px 0 0;font-size:13px;color:#64748b;">點名日期：${now.getFullYear()}/${now.getMonth() + 1}/${now.getDate()} ｜ 準時截止線：07:46:00</p>
+      </div>
+      <button class="no-print" onclick="window.print()" style="padding:8px 16px;background:#4f46e5;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold;">🖨️ 列印報表 (PDF)</button>
+    </div>
+    <div class="grid">${cardsHtml}</div>
+  </div>
+</body>
+</html>`;
+}
+
+// 🌟 一鍵完整打包 ZIP (含 CSV + 照片資料夾 + 獨立報表)
+async function exportAllZipPackage() {
+  if (typeof JSZip === "undefined") {
+    alert("ZIP 元件正在載入中，請稍候再試。");
+    return;
+  }
+
+  const btn = document.getElementById("btn-zip-all");
+  const origText = btn.innerHTML;
+  btn.innerText = "⏳ 正在打包所有檔案與照片...";
+
+  try {
+    const zip = new JSZip();
+    const now = getNow();
+    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+
+    const photoFolder = zip.folder("簽到照片");
+    let photoCount = 0;
+
+    students.forEach(student => {
+      const record = attendance[student.id];
+      if (record && record.photo) {
+        const base64Data = record.photo.replace(/^data:image\/(jpeg|png|jpg);base64,/, "");
+        const statusLabel = record.status === "on-time" ? "準時" : "遲到";
+        const cleanTime = (record.time || "").replace(/:/g, "");
+        const fileName = `QP807_${String(student.id).padStart(2, "0")}_${student.name}_${statusLabel}_${cleanTime}.jpg`;
+
+        photoFolder.file(fileName, base64Data, { base64: true });
+        photoCount++;
+      }
+    });
+
+    const csvContent = buildCsvString();
+    zip.file(`807_點名紀錄清冊_${dateStr}.csv`, csvContent);
+
+    const htmlReport = buildHtmlReport(dateStr);
+    zip.file(`807_點名照片總表_${dateStr}.html`, htmlReport);
+
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    triggerDownload(zipBlob, `807_早晨點名完整紀錄_含照片_${dateStr}.zip`);
+
+    closeExportModal();
+    alert(`🎉 完整點名包下載成功！\n\n已成功將點名表、圖文報表與 ${photoCount} 張學生人臉驗證照片打包成 ZIP 檔。`);
+  } catch (error) {
+    console.error("ZIP 打包失敗", error);
+    alert("ZIP 打包時發生錯誤：" + error.message);
+  } finally {
+    btn.innerHTML = origText;
+  }
+}
+
+async function exportPhotosZipOnly() {
+  const zip = new JSZip();
+  const now = getNow();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+  let photoCount = 0;
+
+  students.forEach(student => {
+    const record = attendance[student.id];
+    if (record && record.photo) {
+      const base64Data = record.photo.replace(/^data:image\/(jpeg|png|jpg);base64,/, "");
+      const statusLabel = record.status === "on-time" ? "準時" : "遲到";
+      const cleanTime = (record.time || "").replace(/:/g, "");
+      const fileName = `QP807_${String(student.id).padStart(2, "0")}_${student.name}_${statusLabel}_${cleanTime}.jpg`;
+
+      zip.file(fileName, base64Data, { base64: true });
+      photoCount++;
+    }
+  });
+
+  if (photoCount === 0) {
+    alert("今日目前尚無任何簽到人臉照片可供匯出！");
+    return;
+  }
+
+  const zipBlob = await zip.generateAsync({ type: "blob" });
+  triggerDownload(zipBlob, `807_學生簽到照片包_${dateStr}.zip`);
+  closeExportModal();
+}
+
+function viewStudentPhoto(studentId) {
+  const record = attendance[studentId];
+  const student = students.find(s => s.id === studentId);
+  if (!record || !record.photo) {
+    alert("該學生尚未有簽到照片存檔。");
+    return;
+  }
+
+  document.getElementById("photo-modal-title").innerText = `${student.id} 號 ${student.name} 的簽到存證照`;
+  document.getElementById("photo-modal-subtitle").innerText = `狀態：${record.status === "on-time" ? "✓ 準時簽到" : "⚠ 遲到"} ｜ 人臉辨識合格`;
+  document.getElementById("photo-modal-img").src = record.photo;
+  document.getElementById("photo-modal-info").innerText = `簽到時間：${record.time}`;
+
+  const dlBtn = document.getElementById("photo-modal-dl-btn");
+  dlBtn.onclick = function() {
+    const a = document.createElement("a");
+    a.href = record.photo;
+    a.download = `QP807_${student.id}_${student.name}_${record.time.replace(/:/g, '')}.jpg`;
+    a.click();
+  };
+
+  document.getElementById("photo-modal").classList.remove("hidden");
+}
+
+function closePhotoModal() {
+  document.getElementById("photo-modal").classList.add("hidden");
+}
+
+
+/* =========================================
+   17. 人臉辨識設定視窗
+========================================= */
+
+function openFaceSettingsModal() {
+  const radios = document.getElementsByName("faceModeRadio");
+  radios.forEach(r => {
+    if (r.value === faceDetectionMode) r.checked = true;
+  });
+  document.getElementById("face-settings-modal").classList.remove("hidden");
+}
+
+function closeFaceSettingsModal() {
+  document.getElementById("face-settings-modal").classList.add("hidden");
+}
+
+function saveFaceSettings() {
+  const radios = document.getElementsByName("faceModeRadio");
+  for (const r of radios) {
+    if (r.checked) {
+      faceDetectionMode = r.value;
+      localStorage.setItem("qp807_face_mode", faceDetectionMode);
+      break;
+    }
+  }
+
+  const statusTextElem = document.getElementById("face-mode-status-text");
+  if (faceDetectionMode === "strict") {
+    statusTextElem.innerText = "嚴格模式 (須辨識完整人臉)";
+    statusTextElem.className = "font-semibold text-indigo-600";
+  } else if (faceDetectionMode === "standard") {
+    statusTextElem.innerText = "標準模式 (人臉＋膚色特徵)";
+    statusTextElem.className = "font-semibold text-emerald-600";
+  } else {
+    statusTextElem.innerText = "停用人臉 (僅掃碼)";
+    statusTextElem.className = "font-semibold text-rose-600";
+  }
+
+  closeFaceSettingsModal();
+  alert(`人臉辨識模式已更新為：${statusTextElem.innerText}`);
+}
+
+
+/* =========================================
+   18. 管理員功能：全簽、重置、編輯名單
+========================================= */
+
+function bulkCheckIn() {
+  const timeStr = getTimeString();
+  const status = getAttendanceStatus(timeStr);
+  let added = 0;
+
+  students.forEach(student => {
+    if (!attendance[student.id]) {
+      attendance[student.id] = {
+        time: timeStr,
+        status: status,
+        photo: null
+      };
+      added++;
+    }
+  });
+
+  saveAttendance();
+  alert(`一鍵全簽完成！\n管理員手動新增：${added} 人`);
+}
+
+function resetAttendance() {
+  if (!confirm("確定要清空今日所有的點名與照片紀錄嗎？清空後無法復原。")) {
+    return;
+  }
+  attendance = {};
+  saveAttendance();
+  alert("今日點名紀錄與人臉相片已清空。");
+}
+
+function editStudents() {
+  const currentList = students.map(s => `${s.id},${s.name}`).join("\n");
+  const input = prompt("請編輯學生名冊（每行格式：座號,姓名）", currentList);
+  if (input === null) return;
+
+  const lines = input.split("\n");
+  const newList = [];
+  const usedIds = new Set();
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const parts = line.split(",");
+    if (parts.length < 2) continue;
+
+    const id = parseInt(parts[0].trim(), 10);
+    const name = parts.slice(1).join(",").trim();
+
+    if (!Number.isInteger(id) || id < 1 || !name || usedIds.has(id)) {
+      alert(`格式錯誤或座號重複：${line}`);
+      return;
+    }
+    usedIds.add(id);
+    newList.push({ id, name });
+  }
+
+  if (newList.length === 0) {
+    alert("學生名單不能為空！");
+    return;
+  }
+
+  students = newList;
+  localStorage.setItem("qp807_students", JSON.stringify(students));
+  render();
+  alert("學生名冊更新成功！");
+}
+
+
+/* =========================================
+   19. 模擬時間測試
+========================================= */
+
+function toggleSimulate() {
+  document.getElementById("sim-panel").classList.toggle("hidden");
+}
+
+function applySimTime() {
+  const val = document.getElementById("sim-time-input").value;
+  if (!val) {
+    alert("請先選擇模擬時間！");
+    return;
+  }
+
+  const today = new Date();
+  const parts = val.split(":");
+  today.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0, 0);
+
+  simTime = today;
+  isSimulating = true;
+
+  initAttendance();
+  render();
+  updateClock();
+  alert(`目前已切換至模擬時間：${val}`);
+}
+
+function disableSimTime() {
+  isSimulating = false;
+  simTime = null;
+  document.getElementById("sim-panel").classList.add("hidden");
+  initAttendance();
+  render();
+  updateClock();
+  alert("已恢復真實系統時間。");
+}
+
+
+/* =========================================
+   20. 更新即時時鐘
+========================================= */
+
+function updateClock() {
+  const now = getNow();
+  const days = ["日", "一", "二", "三", "四", "五", "六"];
+  document.getElementById("current-date").innerText =
+    `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}/${String(now.getDate()).padStart(2, "0")} (${days[now.getDay()]})`;
+
+  document.getElementById("current-time").innerText =
+    now.toTimeString().split(" ")[0];
+}
+
+
+/* =========================================
+   21. 學生名冊畫面繪製
+========================================= */
+
+function render() {
+  let onTimeCount = 0;
+  let lateCount = 0;
+  const grid = document.getElementById("student-grid");
+  grid.innerHTML = "";
+
+  students.forEach(student => {
+    const record = attendance[student.id];
+    let cardBg = "bg-white border-slate-200";
+    let statusText = "尚未簽到";
+    let statusStyle = "text-slate-500 bg-slate-100";
+
+    if (record) {
+      if (record.status === "on-time") {
+        onTimeCount++;
+        cardBg = "bg-emerald-50/50 border-emerald-300";
+        statusText = `✓ 準時 ${record.time}`;
+        statusStyle = "text-emerald-700 bg-emerald-100 border border-emerald-200";
+      } else {
+        lateCount++;
+        cardBg = "bg-amber-50/50 border-amber-300";
+        statusText = `⚠ 遲到 ${record.time}`;
+        statusStyle = "text-amber-700 bg-amber-100 border border-amber-200";
+      }
+    }
+
+    const card = document.createElement("div");
+    card.className = `p-3.5 rounded-2xl border shadow-sm flex flex-col justify-between min-h-[140px] transition ${cardBg}`;
+
+    const top = document.createElement("div");
+    top.className = "flex items-center justify-between mb-2";
+
+    const number = document.createElement("span");
+    number.className = "w-7 h-7 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center justify-center shadow-sm";
+    number.innerText = student.id;
+
+    const statusBadge = document.createElement("span");
+    statusBadge.className = `text-[10px] font-bold px-2 py-0.5 rounded-full ${statusStyle}`;
+    statusBadge.innerText = record ? statusText : "未簽到";
+
+    top.appendChild(number);
+    top.appendChild(statusBadge);
+
+    const name = document.createElement("div");
+    name.className = "text-base font-bold text-slate-900 tracking-tight my-1";
+    name.innerText = student.name;
+
+    card.appendChild(top);
+    card.appendChild(name);
+
+    if (record && record.photo) {
+      const photoBox = document.createElement("div");
+      photoBox.className = "mt-2 pt-2 border-t border-slate-200/60 flex items-center gap-2";
+
+      const thumb = document.createElement("img");
+      thumb.src = record.photo;
+      thumb.alt = "照片縮圖";
+      thumb.className = "w-9 h-9 rounded-lg object-cover border border-emerald-300 cursor-pointer hover:scale-110 transition shadow-sm";
+      thumb.onclick = () => viewStudentPhoto(student.id);
+
+      const photoLabel = document.createElement("div");
+      photoLabel.className = "flex-1 min-w-0";
+      photoLabel.innerHTML = `
+        <span class="text-[10px] text-emerald-700 font-bold block truncate">👤 人臉存證照</span>
+        <button onclick="viewStudentPhoto(${student.id})" class="text-[10px] text-indigo-600 hover:underline">查看大圖</button>
+      `;
+
+      photoBox.appendChild(thumb);
+      photoBox.appendChild(photoLabel);
+      card.appendChild(photoBox);
+    } else {
+      const method = document.createElement("div");
+      method.className = "text-[10px] text-slate-400 mt-2";
+      method.innerText = record ? "管理員手動簽到" : "等待條碼與人臉";
+      card.appendChild(method);
+    }
+
+    grid.appendChild(card);
+  });
+
+  document.getElementById("count-total").innerText = students.length;
+  document.getElementById("count-on-time").innerText = onTimeCount;
+  document.getElementById("count-late").innerText = lateCount;
+  document.getElementById("count-absent").innerText = students.length - onTimeCount - lateCount;
+}
+
+
+/* =========================================
+   22. 強固型全螢幕控制與快捷鍵 (徹底解決無反應問題)
+========================================= */
+
+function isCurrentlyFullscreen() {
+  return !!(
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    document.mozFullScreenElement ||
+    document.msFullscreenElement
+  );
+}
+
+// 點擊「進入全螢幕系統」時執行（相容所有主流與手機瀏覽器）
+async function handleUserEnterFullscreen() {
+  isUserBypassedFullscreen = true;
+  const blocker = document.getElementById("fullscreen-blocker");
+
+  try {
+    const docEl = document.documentElement;
+    const requestFS = docEl.requestFullscreen ||
+                      docEl.webkitRequestFullscreen ||
+                      docEl.mozRequestFullScreen ||
+                      docEl.msRequestFullscreen;
+
+    if (requestFS) {
+      await requestFS.call(docEl);
+    }
+  } catch (err) {
+    console.warn("瀏覽器環境限制原生全螢幕，已自動切換為滿版防干擾模式:", err);
+  }
+
+  // 無論瀏覽器是否允許原生全螢幕，直接關閉阻擋遮罩進入系統
+  if (blocker) {
+    blocker.style.display = "none";
+  }
+}
+
+// 略過限制直入系統
+function bypassFullscreen() {
+  isUserBypassedFullscreen = true;
+  const blocker = document.getElementById("fullscreen-blocker");
+  if (blocker) {
+    blocker.style.display = "none";
+  }
+}
+
+// 狀態檢查（依據全螢幕狀態更新遮罩）
+function updateFullscreenBlockerUI() {
+  const blocker = document.getElementById("fullscreen-blocker");
+  if (!enforceFullscreenEnabled || isUserBypassedFullscreen) {
+    blocker.style.display = "none";
+    return;
+  }
+
+  blocker.style.display = isCurrentlyFullscreen() ? "none" : "flex";
+}
+
+document.addEventListener("fullscreenchange", () => {
+  if (!isCurrentlyFullscreen() && !isUserBypassedFullscreen && enforceFullscreenEnabled) {
+    document.getElementById("fullscreen-blocker").style.display = "flex";
+  }
+});
+
+document.addEventListener("webkitfullscreenchange", () => {
+  if (!isCurrentlyFullscreen() && !isUserBypassedFullscreen && enforceFullscreenEnabled) {
+    document.getElementById("fullscreen-blocker").style.display = "flex";
+  }
+});
+
+// 管理員快捷鍵：Ctrl + Alt + F2
+window.addEventListener("keydown", function(event) {
+  if (event.ctrlKey && event.altKey && (event.key === "F2" || event.code === "F2" || event.keyCode === 113)) {
+    event.preventDefault();
+    enforceFullscreenEnabled = !enforceFullscreenEnabled;
+    isUserBypassedFullscreen = !enforceFullscreenEnabled;
+
+    if (!enforceFullscreenEnabled) {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+      document.getElementById("fullscreen-blocker").style.display = "none";
+      alert("🔓 已解除全螢幕限制 (Ctrl+Alt+F2)");
+    } else {
+      isUserBypassedFullscreen = false;
+      updateFullscreenBlockerUI();
+      alert("🔒 已重新啟用全螢幕模式");
+    }
+  }
+});
+
+
+/* =========================================
+   23. 系統初始化啟動
+========================================= */
+
+function init() {
+  initAttendance();
+  render();
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // 初始化人臉模式標籤
+  const statusTextElem = document.getElementById("face-mode-status-text");
+  if (faceDetectionMode === "strict") {
+    statusTextElem.innerText = "嚴格模式 (須辨識完整人臉)";
+    statusTextElem.className = "font-semibold text-indigo-600";
+  } else if (faceDetectionMode === "standard") {
+    statusTextElem.innerText = "標準模式 (人臉＋膚色特徵)";
+    statusTextElem.className = "font-semibold text-emerald-600";
+  } else {
+    statusTextElem.innerText = "停用人臉 (僅掃碼)";
+    statusTextElem.className = "font-semibold text-rose-600";
+  }
+}
+
+// 啟動系統
+init();
+
+</script>
+
+</body>
+</html>
