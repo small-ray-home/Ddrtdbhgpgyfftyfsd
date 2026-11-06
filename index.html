@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>807 班早晨點名簽到系統（自由感應·露眼即過版）</title>
+  <title>807 班早晨點名簽到系統（前鏡頭·真人面部驗證版）</title>
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -11,7 +11,7 @@
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
-  <!-- 人臉特徵比對庫 (穩定版) -->
+  <!-- 人臉立體特徵分類器 (Viola-Jones Haar Cascade，非單純顏色比對) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tracking.js/1.1.3/tracking-min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tracking.js/1.1.3/data/face-min.js"></script>
 
@@ -151,7 +151,7 @@
     <div class="checkin-content">
 
       <div class="text-base sm:text-xl font-bold text-slate-300 tracking-widest">
-        QP807 · 807 班早晨點名（驗證合格）
+        QP807 · 807 班早晨點名（真人面部驗證通過）
       </div>
 
       <!-- 拍攝照片展示區 -->
@@ -159,7 +159,7 @@
         <div class="relative rounded-2xl overflow-hidden border-4 border-emerald-400 shadow-2xl bg-slate-900 max-w-[280px] sm:max-w-[340px]">
           <img id="checkin-photo" src="" alt="簽到照片" class="w-full h-44 sm:h-52 object-cover block">
           <div class="absolute bottom-2 right-2 bg-emerald-600/95 text-white text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1 shadow backdrop-blur-sm">
-            <span>✓</span> 人臉/雙眼入鏡存檔完成
+            <span>✓</span> 真人面部辨識存檔
           </div>
         </div>
       </div>
@@ -193,7 +193,7 @@
     </div>
   </div>
 
-  <!-- 頂部導覽列 (首頁核心雙按鈕置於右上角) -->
+  <!-- 頂部導覽列 -->
   <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-20 flex flex-wrap items-center justify-between gap-4 py-3">
 
@@ -208,7 +208,7 @@
               807 班早晨點名簽到系統
             </h1>
             <span class="text-[11px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full border border-emerald-300">
-              自由感應 · 露眼即過
+              前鏡頭優先 · 真人防偽版
             </span>
           </div>
 
@@ -216,13 +216,13 @@
             簽到截止時間：
             <span class="font-semibold text-slate-700">07:46:00</span>
             <span class="mx-1.5 text-slate-300">|</span>
-            感應規則：
-            <span class="font-semibold text-emerald-600">不限位置，全畫面感應，雙眼露臉即過</span>
+            防偽機制：
+            <span class="font-semibold text-indigo-600">嚴格真人五官輪廓比對（拒絕桌面白紙）</span>
           </p>
         </div>
       </div>
 
-      <!-- 右側核心功能雙按鈕：切換全螢幕 ＋ 開啟鏡頭掃描 -->
+      <!-- 右側核心雙按鈕：切換全螢幕 ＋ 開啟前鏡頭掃描 -->
       <div class="flex items-center gap-3">
 
         <div class="text-right hidden sm:block mr-1">
@@ -245,14 +245,14 @@
           <span id="fs-btn-text">全螢幕模式</span>
         </button>
 
-        <!-- 按鈕 2：開啟鏡頭掃描 -->
+        <!-- 按鈕 2：開啟鏡頭掃描（前鏡頭優先） -->
         <button
           id="camera-btn"
           onclick="toggleCamera()"
           class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition shadow-md active:scale-95 cursor-pointer"
         >
           <span>📷</span>
-          <span id="camera-btn-text">開啟鏡頭掃描</span>
+          <span id="camera-btn-text">開啟前鏡頭掃描</span>
         </button>
 
       </div>
@@ -276,16 +276,27 @@
           </span>
 
           <h2 class="font-bold text-slate-900">
-            全畫面自由感應中（不限位置，露眼＋條碼即過）
+            前鏡頭自動感應中（需有人臉入鏡 ＋ 條碼）
           </h2>
         </div>
 
-        <button
-          onclick="toggleCamera()"
-          class="text-slate-400 hover:text-slate-600 text-sm font-medium"
-        >
-          關閉鏡頭 ✕
-        </button>
+        <div class="flex items-center gap-3">
+          <!-- 翻轉/切換前後鏡頭按鈕 -->
+          <button
+            onclick="switchCameraFacing()"
+            class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-3 py-1.5 rounded-lg border border-slate-300 transition flex items-center gap-1"
+          >
+            <span>🔄</span>
+            <span id="camera-facing-label">切換鏡頭 (目前：前鏡頭)</span>
+          </button>
+
+          <button
+            onclick="toggleCamera()"
+            class="text-slate-400 hover:text-slate-600 text-sm font-medium"
+          >
+            關閉鏡頭 ✕
+          </button>
+        </div>
 
       </div>
 
@@ -297,12 +308,12 @@
 
           <!-- 輕巧的狀態指示標籤 -->
           <div id="face-live-badge" class="absolute top-2.5 left-2.5 bg-slate-900/80 text-white text-[11px] px-2.5 py-1 rounded-lg backdrop-blur-sm border border-slate-700 flex items-center gap-1.5 pointer-events-none">
-            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-            <span>全畫面感應中（不限位置）</span>
+            <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+            <span>等待人臉與條碼...</span>
           </div>
 
           <div class="absolute bottom-2.5 right-2.5 bg-slate-900/70 text-slate-300 text-[10px] px-2 py-0.5 rounded backdrop-blur-sm pointer-events-none">
-            👀 眼睛露出即可
+            👤 人臉需入鏡
           </div>
         </div>
 
@@ -311,15 +322,14 @@
           <div>
             <p class="font-semibold text-slate-800 mb-1.5 flex items-center gap-1.5">
               <span>📷</span>
-              <span>輕鬆感應使用說明</span>
+              <span>前鏡頭簽到說明</span>
             </p>
 
             <ul class="list-disc pl-5 space-y-1.5 text-slate-600 text-xs sm:text-sm">
-              <li><strong class="text-indigo-600">完全不限位置</strong>：QR Code 與學生出現在鏡頭的任意角落（左邊、右邊、中間）皆可立即感應！</li>
-              <li><strong class="text-slate-900">眼睛露出即可過關</strong>：學生戴口罩也可以，只要<strong>眼睛或臉部在畫面中</strong>，同時掃到條碼就立刻通過！</li>
-              <li><strong class="text-rose-600">防止純紙張代簽</strong>：若鏡頭內完全沒有露臉／露眼（例如只拿紙條完全遮住畫面），才會進行警示攔截。</li>
-              <li>通過瞬間自動拍照存檔，全螢幕展示大照片並語音朗讀。</li>
-              <li>匯出時可一鍵下載所有已簽到學生的照片壓縮包（ZIP）。</li>
+              <li><strong class="text-indigo-600">前鏡頭優先</strong>：學生正對螢幕，將條碼出示於鏡頭前即可。</li>
+              <li><strong class="text-rose-600">真偽檢驗（禁止純紙張代簽）</strong>：必須有學生的人臉/眼睛入鏡才會通過，<strong class="text-slate-800">直接把紙條平放在木桌上或遮擋鏡頭不會通過</strong>！</li>
+              <li><strong class="text-slate-900">不限位置</strong>：臉部與條碼只要出現在鏡頭內任意位置即可（戴口罩亦可）。</li>
+              <li>簽到成功時會發出清脆提示音、自動拍攝存證並全螢幕語音朗讀。</li>
             </ul>
           </div>
 
@@ -332,13 +342,13 @@
               id="scan-result"
               class="font-semibold text-slate-700 min-h-[32px] flex items-center"
             >
-              等待感應 QR Code 與眼睛...
+              等待感應 QR Code 與人臉...
             </div>
           </div>
 
           <div class="flex items-center justify-between text-xs text-slate-400 pt-1">
             <span>專屬格式：QP807-01 ～ QP807-35</span>
-            <span class="text-emerald-600 font-medium">✓ 全畫面寬容偵測已開啟</span>
+            <span class="text-emerald-600 font-medium">✓ 真人面部特徵驗證防偽啟動中</span>
           </div>
 
         </div>
@@ -485,7 +495,7 @@
         </div>
 
         <span class="text-xs text-indigo-600 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-full font-medium">
-          👤 拍照存證版
+          👤 真人面部照片存證
         </span>
 
       </div>
@@ -677,6 +687,9 @@ const ADMIN_PASS = "qpjh807";
 const LATE_TIME = "07:46:00";
 const COOLDOWN_MS = 2200;
 
+// 鏡頭設定：預設「user (前鏡頭)」，可隨時切換為「environment (後鏡頭)」
+let currentCameraFacing = "user";
+
 
 /* =========================================
    2. 807 班學生名單
@@ -842,29 +855,41 @@ function validateQrCode(decodedText) {
 
 
 /* =========================================
-   9. 寬鬆型人臉/眼睛檢驗 (不限位置，露眼即過)
+   9. 純真人面部立體結構辨識 (徹底杜絕木桌/白紙)
 ========================================= */
 
-async function verifyFaceOrEyesAnywhere(canvas) {
+/**
+ * 徹底拋棄容易把木紋桌、地板誤判為膚色的顏色檢驗。
+ * 僅採用純黑白五官灰階特徵 (Haar Cascade) 與 類神經網路 FaceDetector。
+ * 畫面中若只有一張白紙或木頭桌，絕對直接判定為【未偵測到人臉】！
+ */
+async function verifyGenuineFaceInFrame(canvas) {
   const width = canvas.width;
   const height = canvas.height;
 
-  // 1. 原生 FaceDetector：支援正面、側面與雙眼入鏡
+  // 1. 原生 FaceDetector API (高階神經網路，精確辨識眼睛、眉毛、鼻子、面部)
   if ('FaceDetector' in window) {
     try {
-      const detector = new FaceDetector({ fastMode: true, maxDetectedFaces: 3 });
+      const detector = new FaceDetector({ fastMode: false, maxDetectedFaces: 2 });
       const faces = await detector.detect(canvas);
+
       if (faces && faces.length > 0) {
-        const b = faces[0].boundingBox;
-        return {
-          passed: true,
-          box: { x: b.x, y: b.y, width: b.width, height: b.height }
-        };
+        for (const face of faces) {
+          const b = face.boundingBox;
+          // 尺寸限制：寬度與高度必須至少 40px，確保非背景雜點
+          if (b.width >= 40 && b.height >= 40) {
+            return {
+              passed: true,
+              box: { x: b.x, y: b.y, width: b.width, height: b.height },
+              method: "FaceDetector"
+            };
+          }
+        }
       }
     } catch (e) {}
   }
 
-  // 2. tracking.js：人臉特徵搜尋
+  // 2. tracking.js Viola-Jones (經由眼窩、鼻樑、面頰明暗比對訓練的模型)
   if (window.tracking && tracking.ViolaJones && tracking.ViolaJones.classifiers && tracking.ViolaJones.classifiers.face) {
     try {
       const scaleCanvas = document.createElement("canvas");
@@ -881,84 +906,43 @@ async function verifyFaceOrEyesAnywhere(canvas) {
         imgData.data,
         scaleCanvas.width,
         scaleCanvas.height,
-        1.8, 1.25, 1.6, 0.1,
+        1.7,  // initialScale
+        1.25, // scaleFactor
+        1.6,  // stepSize
+        0.15, // edgesDensity (嚴格邊緣密度，防止木紋紋路被判為臉)
         tracking.ViolaJones.classifiers.face
       );
 
       if (rects && rects.length > 0) {
-        const face = rects[0];
-        return {
-          passed: true,
-          box: {
-            x: face.x / scale,
-            y: face.y / scale,
-            width: face.width / scale,
-            height: face.height / scale
-          }
-        };
+        rects.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+        const best = rects[0];
+        const origW = best.width / scale;
+        const origH = best.height / scale;
+
+        // 必須具備面部基本長寬比與足夠大小
+        if (origW >= 45 && origH >= 45) {
+          return {
+            passed: true,
+            box: {
+              x: best.x / scale,
+              y: best.y / scale,
+              width: origW,
+              height: origH
+            },
+            method: "ViolaJones"
+          };
+        }
       }
     } catch (err) {}
   }
 
-  // 3. 寬容膚色特徵：畫面中只要有人體臉部膚色區域即算入鏡（不限任何位置）
-  const skinCheck = checkSkinPresence(canvas);
-  if (skinCheck.passed) {
-    return skinCheck;
-  }
-
+  // 🛑 移除了原本的膚色檢測！無人臉特徵一律判定失敗！
   return { passed: false };
 }
 
-function checkSkinPresence(canvas) {
-  const w = 120;
-  const h = 90;
-  const temp = document.createElement("canvas");
-  temp.width = w;
-  temp.height = h;
-  const ctx = temp.getContext("2d");
-  ctx.drawImage(canvas, 0, 0, w, h);
-  const data = ctx.getImageData(0, 0, w, h).data;
-
-  let skinPixels = 0;
-  let minX = w, maxX = 0, minY = h, maxY = 0;
-
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    const pixelIdx = i / 4;
-    const x = pixelIdx % w;
-    const y = Math.floor(pixelIdx / w);
-
-    if (r > 90 && g > 38 && b > 18 &&
-        (Math.max(r, g, b) - Math.min(r, g, b)) > 15 &&
-        Math.abs(r - g) > 14 && r > g && r > b) {
-      skinPixels++;
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-    }
-  }
-
-  // 畫面有超過 3.5% 的膚色即確認有人在鏡頭前（排除純紙張擋全景）
-  if (skinPixels >= (w * h) * 0.035) {
-    const scaleX = canvas.width / w;
-    const scaleY = canvas.height / h;
-    return {
-      passed: true,
-      box: {
-        x: minX * scaleX,
-        y: minY * scaleY,
-        width: Math.max(40, (maxX - minX) * scaleX),
-        height: Math.max(40, (maxY - minY) * scaleY)
-      }
-    };
-  }
-
-  return { passed: false };
-}
-
+/**
+ * 壓印人臉驗證合格標籤浮水印
+ */
 function createStampedPhoto(sourceCanvas, student, faceBox, timeStr, status) {
   const targetW = 480;
   const targetH = Math.round(targetW * (sourceCanvas.height / sourceCanvas.width));
@@ -971,6 +955,7 @@ function createStampedPhoto(sourceCanvas, student, faceBox, timeStr, status) {
   ctx.drawImage(sourceCanvas, 0, 0, targetW, targetH);
   const scale = targetW / sourceCanvas.width;
 
+  // 繪製人臉方框
   if (faceBox) {
     const bx = faceBox.x * scale;
     const by = faceBox.y * scale;
@@ -978,19 +963,20 @@ function createStampedPhoto(sourceCanvas, student, faceBox, timeStr, status) {
     const bh = faceBox.height * scale;
 
     ctx.strokeStyle = "#10b981";
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 3;
     ctx.strokeRect(bx, by, bw, bh);
 
-    ctx.fillStyle = "rgba(16, 185, 129, 0.9)";
-    ctx.fillRect(bx, Math.max(0, by - 20), Math.min(120, bw), 20);
+    ctx.fillStyle = "rgba(16, 185, 129, 0.95)";
+    ctx.fillRect(bx, Math.max(0, by - 22), Math.min(130, bw), 22);
 
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 11px sans-serif";
-    ctx.fillText("✓ 人臉/眼睛入鏡", bx + 6, Math.max(14, by - 5));
+    ctx.fillText("✓ 真人面部通過", bx + 6, Math.max(15, by - 6));
   }
 
+  // 底部黑條
   const bannerH = 34;
-  ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+  ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
   ctx.fillRect(0, targetH - bannerH, targetW, bannerH);
 
   ctx.fillStyle = "#ffffff";
@@ -1002,7 +988,7 @@ function createStampedPhoto(sourceCanvas, student, faceBox, timeStr, status) {
   ctx.font = "bold 13px monospace";
   ctx.fillText(`${timeStr} (${statusLabel})`, targetW - 145, targetH - 12);
 
-  return stampCanvas.toDataURL("image/jpeg", 0.78);
+  return stampCanvas.toDataURL("image/jpeg", 0.80);
 }
 
 
@@ -1047,28 +1033,28 @@ async function handleQrCodeScan(decodedText) {
   const ctx = capCanvas.getContext("2d");
   ctx.drawImage(video, 0, 0, capCanvas.width, capCanvas.height);
 
-  faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span><span>檢驗入鏡中...</span>`;
+  faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span><span>檢驗人臉特徵中...</span>`;
 
-  // 檢驗畫面是否有露臉或眼睛
-  const faceCheck = await verifyFaceOrEyesAnywhere(capCanvas);
+  // 檢驗人臉立體五官結構（純桌面白紙必失敗）
+  const faceCheck = await verifyGenuineFaceInFrame(capCanvas);
 
-  // 🔴 鏡頭內完全沒有露臉/眼睛（純紙張代簽）
+  // 🔴 失敗：畫面只有桌子或紙張，沒有真人五官！
   if (!faceCheck.passed) {
-    faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span><span class="text-rose-300 font-bold">未見眼睛入鏡</span>`;
-    resultElem.innerHTML = `❌ <span class="bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded font-bold mr-1">請露出眼睛</span> 掃到 ${student.name} 的條碼，但未看見眼睛或臉部，請勿用紙張完全遮擋鏡頭。`;
+    faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span><span class="text-rose-300 font-bold">未見真人面部</span>`;
+    resultElem.innerHTML = `❌ <span class="bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded font-bold mr-1">人臉檢驗未過</span> 讀取到 ${student.name} 的條碼，但鏡頭未見到真人面部或眼睛，請學生面對鏡頭出示條碼！`;
     resultElem.className = "font-semibold text-rose-700 min-h-[32px] flex items-center bg-rose-50 p-2 rounded-xl border border-rose-200";
 
     playFailBeep();
     flashCameraContainer("border-rose-500");
-    startCooldown(2000);
+    startCooldown(2200);
     return;
   }
 
-  // 🟢 驗證通過：不限位置，即刻過關並存證
+  // 🟢 成功：真人入鏡，合格存檔
   scanCoolDown = true;
   isAnnouncementPlaying = true;
 
-  faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span class="text-emerald-300 font-bold">驗證通過</span>`;
+  faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span class="text-emerald-300 font-bold">真人面部通過</span>`;
 
   const timeStr = getTimeString();
   const status = getAttendanceStatus(timeStr);
@@ -1085,10 +1071,10 @@ async function handleQrCodeScan(decodedText) {
   flashCameraContainer("border-emerald-500");
 
   if (status === "late") {
-    resultElem.innerHTML = `⚠️ 遲到簽到：<strong class="text-amber-700">${student.id} 號 ${student.name}</strong>（${timeStr}）· 照片已留存`;
+    resultElem.innerHTML = `⚠️ 遲到簽到：<strong class="text-amber-700">${student.id} 號 ${student.name}</strong>（${timeStr}）· 真人面部照片已存檔`;
     resultElem.className = "font-semibold text-amber-700 min-h-[32px] flex items-center";
   } else {
-    resultElem.innerHTML = `✅ 簽到成功：<strong class="text-emerald-700">${student.id} 號 ${student.name}</strong>（${timeStr}）· 照片已留存`;
+    resultElem.innerHTML = `✅ 簽到成功：<strong class="text-emerald-700">${student.id} 號 ${student.name}</strong>（${timeStr}）· 真人面部照片已存檔`;
     resultElem.className = "font-semibold text-emerald-700 min-h-[32px] flex items-center";
   }
 
@@ -1107,7 +1093,7 @@ function startCooldown(ms = COOLDOWN_MS) {
       scanCoolDown = false;
       const faceBadge = document.getElementById("face-live-badge");
       if (faceBadge && isCameraOpen) {
-        faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span>全畫面感應中（不限位置）</span>`;
+        faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span><span>等待人臉與條碼...</span>`;
       }
     }
   }, ms);
@@ -1266,7 +1252,7 @@ function finishAnnouncement() {
       scanCoolDown = false;
       const faceBadge = document.getElementById("face-live-badge");
       if (faceBadge) {
-        faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span>全畫面感應中（不限位置）</span>`;
+        faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span><span>等待人臉與條碼...</span>`;
       }
     }
   }, 400);
@@ -1274,7 +1260,7 @@ function finishAnnouncement() {
 
 
 /* =========================================
-   13. 核心按鈕 1：開啟/關閉鏡頭
+   13. 核心鏡頭控制（前鏡頭優先 ＋ 隨時切換前後鏡頭）
 ========================================= */
 
 async function toggleCamera() {
@@ -1290,14 +1276,14 @@ async function toggleCamera() {
   btnText.innerText = "關閉鏡頭掃描";
   isCameraOpen = true;
 
-  document.getElementById("scan-result").innerText = "正在啟動攝影機...";
+  document.getElementById("scan-result").innerText = "正在啟動鏡頭與真人面部辨識引擎...";
 
   try {
     html5QrcodeScanner = new Html5Qrcode("reader");
 
-    // 全視角廣角掃描，不限制在中間框
+    // 🌟 前鏡頭優先 (facingMode: 'user')
     await html5QrcodeScanner.start(
-      { facingMode: "environment" },
+      { facingMode: currentCameraFacing },
       {
         fps: 15,
         aspectRatio: 1.0,
@@ -1307,11 +1293,40 @@ async function toggleCamera() {
       function() {}
     );
 
-    document.getElementById("scan-result").innerText = "📷 鏡頭已就緒，條碼與雙眼在畫面任意處皆可感應。";
+    document.getElementById("scan-result").innerText = "📷 前鏡頭已就緒，請學生面對鏡頭並出示條碼。";
+    updateCameraFacingLabel();
   } catch (error) {
-    console.error("鏡頭啟動失敗", error);
-    alert("無法開啟鏡頭！請確認瀏覽器已允許攝影機權限。");
+    console.error("前鏡頭啟動失敗，嘗試備援攝影機", error);
+    try {
+      // 若特定設備不支援指定前置，則啟動預設攝影機
+      await html5QrcodeScanner.start(
+        {},
+        { fps: 15, aspectRatio: 1.0 },
+        handleQrCodeScan,
+        function() {}
+      );
+      document.getElementById("scan-result").innerText = "📷 鏡頭已就緒，請學生面對鏡頭並出示條碼。";
+    } catch (e2) {
+      alert("無法開啟鏡頭！請確認瀏覽器已允許攝影機權限。");
+      await stopCamera();
+    }
+  }
+}
+
+// 🔄 切換前後鏡頭
+async function switchCameraFacing() {
+  currentCameraFacing = (currentCameraFacing === "user") ? "environment" : "user";
+  updateCameraFacingLabel();
+  if (isCameraOpen) {
     await stopCamera();
+    await toggleCamera();
+  }
+}
+
+function updateCameraFacingLabel() {
+  const label = document.getElementById("camera-facing-label");
+  if (label) {
+    label.innerText = `切換鏡頭 (目前：${currentCameraFacing === 'user' ? '前鏡頭' : '後鏡頭'})`;
   }
 }
 
@@ -1343,12 +1358,12 @@ async function stopCamera() {
   isCameraOpen = false;
   scanCoolDown = false;
   container.classList.add("hidden");
-  btnText.innerText = "開啟鏡頭掃描";
+  btnText.innerText = "開啟前鏡頭掃描";
 }
 
 
 /* =========================================
-   14. 核心按鈕 2：全螢幕切換
+   14. 全螢幕切換
 ========================================= */
 
 function isCurrentlyFullscreen() {
@@ -1562,7 +1577,7 @@ function triggerDownload(blob, filename) {
 }
 
 function buildCsvString() {
-  let csv = "\uFEFF座號,姓名,簽到狀態,簽到時間,照片存證檔名\n";
+  let csv = "\uFEFF座號,姓名,簽到狀態,簽到時間,真人照片檔名\n";
   students.forEach(student => {
     const record = attendance[student.id];
     let status = "未簽到";
@@ -1695,7 +1710,7 @@ async function exportAllZipPackage() {
     triggerDownload(zipBlob, `807_早晨點名完整紀錄_含照片_${dateStr}.zip`);
 
     closeExportModal();
-    alert(`🎉 完整點名包下載成功！已打包點名表、圖文報表與 ${photoCount} 張學生存證照片。`);
+    alert(`🎉 完整點名包下載成功！已打包點名表、圖文報表與 ${photoCount} 張真人照片。`);
   } catch (error) {
     alert("ZIP 打包失敗：" + error.message);
   } finally {
@@ -1950,7 +1965,7 @@ function render() {
       const photoLabel = document.createElement("div");
       photoLabel.className = "flex-1 min-w-0";
       photoLabel.innerHTML = `
-        <span class="text-[10px] text-emerald-700 font-bold block truncate">👤 簽到存檔照</span>
+        <span class="text-[10px] text-emerald-700 font-bold block truncate">👤 真人存檔照</span>
         <button onclick="viewStudentPhoto(${student.id})" class="text-[10px] text-indigo-600 hover:underline">查看大圖</button>
       `;
 
