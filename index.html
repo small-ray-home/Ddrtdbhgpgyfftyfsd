@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>807 班早晨點名簽到系統（前鏡頭·真人面部驗證版）</title>
+  <title>807 班早晨點名簽到系統（可選鏡頭・即時人臉框）</title>
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -28,8 +28,32 @@
     }
 
     #reader video {
+      width: 100% !important;
+      height: 100% !important;
       object-fit: cover !important;
       border-radius: 12px;
+    }
+
+    #face-overlay {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 8;
+    }
+
+    #reader {
+      width: 100%;
+      height: 100%;
+    }
+
+    #reader__scan_region {
+      min-height: 100% !important;
+    }
+
+    #reader__dashboard {
+      display: none !important;
     }
 
     /* 全螢幕簽到成功畫面 (僅於簽到時彈出) */
@@ -222,7 +246,7 @@
         </div>
       </div>
 
-      <!-- 右側核心雙按鈕：切換全螢幕 ＋ 開啟前鏡頭掃描 -->
+      <!-- 右側核心雙按鈕：切換全螢幕 ＋ 開啟鏡頭掃描 -->
       <div class="flex items-center gap-3">
 
         <div class="text-right hidden sm:block mr-1">
@@ -245,14 +269,14 @@
           <span id="fs-btn-text">全螢幕模式</span>
         </button>
 
-        <!-- 按鈕 2：開啟鏡頭掃描（前鏡頭優先） -->
+        <!-- 按鈕 2：開啟鏡頭掃描 -->
         <button
           id="camera-btn"
           onclick="toggleCamera()"
           class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition shadow-md active:scale-95 cursor-pointer"
         >
           <span>📷</span>
-          <span id="camera-btn-text">開啟前鏡頭掃描</span>
+          <span id="camera-btn-text">開啟鏡頭掃描</span>
         </button>
 
       </div>
@@ -276,18 +300,27 @@
           </span>
 
           <h2 class="font-bold text-slate-900">
-            前鏡頭自動感應中（需有人臉入鏡 ＋ 條碼）
+            鏡頭即時感應中（需有人臉入鏡 ＋ 條碼）
           </h2>
         </div>
 
-        <div class="flex items-center gap-3">
-          <!-- 翻轉/切換前後鏡頭按鈕 -->
-          <button
-            onclick="switchCameraFacing()"
-            class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-3 py-1.5 rounded-lg border border-slate-300 transition flex items-center gap-1"
+        <div class="flex flex-wrap items-center gap-2">
+          <label for="camera-select" class="text-xs font-semibold text-slate-600">選擇鏡頭</label>
+          <select
+            id="camera-select"
+            onchange="changeSelectedCamera()"
+            class="max-w-[220px] text-xs bg-white text-slate-700 px-2.5 py-2 rounded-lg border border-slate-300"
+            disabled
           >
-            <span>🔄</span>
-            <span id="camera-facing-label">切換鏡頭 (目前：前鏡頭)</span>
+            <option value="">啟動鏡頭後載入清單</option>
+          </select>
+
+          <button
+            onclick="refreshCameraList()"
+            class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-3 py-2 rounded-lg border border-slate-300 transition"
+            title="重新讀取可用鏡頭"
+          >
+            ↻ 更新
           </button>
 
           <button
@@ -305,6 +338,7 @@
         <!-- 攝影機全畫面 -->
         <div class="w-full md:w-96 h-80 bg-slate-950 rounded-2xl overflow-hidden relative border-2 border-slate-300 shadow-inner flex items-center justify-center">
           <div id="reader" class="w-full h-full"></div>
+          <canvas id="face-overlay"></canvas>
 
           <!-- 輕巧的狀態指示標籤 -->
           <div id="face-live-badge" class="absolute top-2.5 left-2.5 bg-slate-900/80 text-white text-[11px] px-2.5 py-1 rounded-lg backdrop-blur-sm border border-slate-700 flex items-center gap-1.5 pointer-events-none">
@@ -322,11 +356,11 @@
           <div>
             <p class="font-semibold text-slate-800 mb-1.5 flex items-center gap-1.5">
               <span>📷</span>
-              <span>前鏡頭簽到說明</span>
+              <span>鏡頭簽到說明</span>
             </p>
 
             <ul class="list-disc pl-5 space-y-1.5 text-slate-600 text-xs sm:text-sm">
-              <li><strong class="text-indigo-600">前鏡頭優先</strong>：學生正對螢幕，將條碼出示於鏡頭前即可。</li>
+              <li><strong class="text-indigo-600">可自行選擇鏡頭</strong>：開啟鏡頭後，可從上方清單選擇前鏡頭、後鏡頭或其他可用攝影機。</li>
               <li><strong class="text-rose-600">真偽檢驗（禁止純紙張代簽）</strong>：必須有學生的人臉/眼睛入鏡才會通過，<strong class="text-slate-800">直接把紙條平放在木桌上或遮擋鏡頭不會通過</strong>！</li>
               <li><strong class="text-slate-900">不限位置</strong>：臉部與條碼只要出現在鏡頭內任意位置即可（戴口罩亦可）。</li>
               <li>簽到成功時會發出清脆提示音、自動拍攝存證並全螢幕語音朗讀。</li>
@@ -687,8 +721,12 @@ const ADMIN_PASS = "qpjh807";
 const LATE_TIME = "07:46:00";
 const COOLDOWN_MS = 2200;
 
-// 鏡頭設定：預設「user (前鏡頭)」，可隨時切換為「environment (後鏡頭)」
-let currentCameraFacing = "user";
+// 鏡頭設定：預設由瀏覽器選擇，使用者可在下拉清單中指定任一可用鏡頭
+let selectedCameraId = "";
+let availableCameras = [];
+let faceAnimationFrame = null;
+let lastFaceDetectAt = 0;
+let faceDetectBusy = false;
 
 
 /* =========================================
@@ -1260,105 +1298,275 @@ function finishAnnouncement() {
 
 
 /* =========================================
-   13. 核心鏡頭控制（前鏡頭優先 ＋ 隨時切換前後鏡頭）
+   13. 核心鏡頭控制（可選擇任何可用攝影機）
 ========================================= */
 
-async function toggleCamera() {
-  const container = document.getElementById("camera-container");
-  const btnText = document.getElementById("camera-btn-text");
+async function refreshCameraList() {
+  const select = document.getElementById("camera-select");
+  if (!select) return;
 
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+    select.innerHTML = '<option value="">此瀏覽器不支援攝影機清單</option>';
+    select.disabled = true;
+    return;
+  }
+
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    availableCameras = devices.filter(device => device.kind === "videoinput");
+    const previousValue = selectedCameraId || select.value;
+    select.innerHTML = "";
+
+    if (availableCameras.length === 0) {
+      select.innerHTML = '<option value="">找不到可用鏡頭</option>';
+      select.disabled = true;
+      return;
+    }
+
+    availableCameras.forEach((device, index) => {
+      const option = document.createElement("option");
+      option.value = device.deviceId;
+      option.textContent = device.label || `攝影機 ${index + 1}`;
+      select.appendChild(option);
+    });
+
+    const matched = availableCameras.find(device => device.deviceId === previousValue);
+    selectedCameraId = matched ? matched.deviceId : availableCameras[0].deviceId;
+    select.value = selectedCameraId;
+    select.disabled = false;
+  } catch (error) {
+    console.error("讀取攝影機清單失敗：", error);
+    select.innerHTML = '<option value="">無法讀取鏡頭清單</option>';
+    select.disabled = true;
+  }
+}
+
+async function changeSelectedCamera() {
+  const select = document.getElementById("camera-select");
+  if (!select || !select.value) return;
+
+  const nextCameraId = select.value;
+  if (nextCameraId === selectedCameraId && isCameraOpen) return;
+
+  selectedCameraId = nextCameraId;
+
+  if (isCameraOpen) {
+    await stopCamera({ hideContainer: false });
+    await startCameraWithSelectedDevice();
+  }
+}
+
+async function toggleCamera() {
   if (isCameraOpen) {
     await stopCamera();
     return;
   }
 
-  container.classList.remove("hidden");
-  btnText.innerText = "關閉鏡頭掃描";
-  isCameraOpen = true;
+  document.getElementById("camera-container").classList.remove("hidden");
+  await startCameraWithSelectedDevice();
+}
 
-  document.getElementById("scan-result").innerText = "正在啟動鏡頭與真人面部辨識引擎...";
+async function startCameraWithSelectedDevice() {
+  const btnText = document.getElementById("camera-btn-text");
+  const resultElem = document.getElementById("scan-result");
+  const select = document.getElementById("camera-select");
+
+  if (isCameraOpen && html5QrcodeScanner) {
+    await stopCamera({ hideContainer: false });
+  }
+
+  isCameraOpen = true;
+  btnText.innerText = "關閉鏡頭掃描";
+  resultElem.innerText = "正在啟動所選鏡頭與即時人臉辨識...";
 
   try {
     html5QrcodeScanner = new Html5Qrcode("reader");
 
-    // 🌟 前鏡頭優先 (facingMode: 'user')
+    const cameraConfig = selectedCameraId
+      ? { deviceId: { exact: selectedCameraId } }
+      : { facingMode: "user" };
+
     await html5QrcodeScanner.start(
-      { facingMode: currentCameraFacing },
-      {
-        fps: 15,
-        aspectRatio: 1.0,
-        disableFlip: false
-      },
+      cameraConfig,
+      { fps: 15, aspectRatio: 1.0, disableFlip: false },
       handleQrCodeScan,
       function() {}
     );
 
-    document.getElementById("scan-result").innerText = "📷 前鏡頭已就緒，請學生面對鏡頭並出示條碼。";
-    updateCameraFacingLabel();
+    await refreshCameraList();
+
+    const selectedDevice = availableCameras.find(device => device.deviceId === selectedCameraId);
+    const selectedName = selectedDevice ? (selectedDevice.label || "已選取攝影機") : "攝影機";
+    resultElem.innerText = `📷 ${selectedName} 已就緒，請面對鏡頭並出示條碼。`;
+    if (select && selectedCameraId) select.value = selectedCameraId;
+
+    startLiveFaceDetection();
   } catch (error) {
-    console.error("前鏡頭啟動失敗，嘗試備援攝影機", error);
+    console.error("指定鏡頭啟動失敗：", error);
+
     try {
-      // 若特定設備不支援指定前置，則啟動預設攝影機
+      if (html5QrcodeScanner) {
+        try { html5QrcodeScanner.clear(); } catch (e) {}
+      }
+
+      html5QrcodeScanner = new Html5Qrcode("reader");
       await html5QrcodeScanner.start(
-        {},
-        { fps: 15, aspectRatio: 1.0 },
+        { facingMode: "user" },
+        { fps: 15, aspectRatio: 1.0, disableFlip: false },
         handleQrCodeScan,
         function() {}
       );
-      document.getElementById("scan-result").innerText = "📷 鏡頭已就緒，請學生面對鏡頭並出示條碼。";
-    } catch (e2) {
-      alert("無法開啟鏡頭！請確認瀏覽器已允許攝影機權限。");
+
+      selectedCameraId = "";
+      await refreshCameraList();
+      resultElem.innerText = "📷 已使用備援鏡頭啟動；你可以再從清單選擇其他鏡頭。";
+      startLiveFaceDetection();
+    } catch (fallbackError) {
+      console.error("備援鏡頭啟動失敗：", fallbackError);
+      alert("無法開啟鏡頭！請確認網站使用 HTTPS，並允許瀏覽器存取攝影機。");
       await stopCamera();
     }
   }
 }
 
-// 🔄 切換前後鏡頭
-async function switchCameraFacing() {
-  currentCameraFacing = (currentCameraFacing === "user") ? "environment" : "user";
-  updateCameraFacingLabel();
-  if (isCameraOpen) {
-    await stopCamera();
-    await toggleCamera();
+/* 持續偵測人臉，並在預覽畫面上繪製綠色方框。 */
+function startLiveFaceDetection() {
+  stopLiveFaceDetection();
+
+  const loop = async (timestamp) => {
+    if (!isCameraOpen) return;
+
+    if (!faceDetectBusy && timestamp - lastFaceDetectAt >= 300) {
+      lastFaceDetectAt = timestamp;
+      faceDetectBusy = true;
+
+      try {
+        const video = document.querySelector("#reader video");
+        const overlay = document.getElementById("face-overlay");
+
+        if (video && overlay && video.readyState >= 2 && video.videoWidth > 0) {
+          const frameCanvas = document.createElement("canvas");
+          frameCanvas.width = video.videoWidth;
+          frameCanvas.height = video.videoHeight;
+          const frameContext = frameCanvas.getContext("2d", { willReadFrequently: true });
+          frameContext.drawImage(video, 0, 0, frameCanvas.width, frameCanvas.height);
+
+          const detection = await verifyGenuineFaceInFrame(frameCanvas);
+          drawLiveFaceBox(video, overlay, detection);
+        }
+      } catch (error) {
+        console.warn("即時人臉偵測暫時失敗：", error);
+      } finally {
+        faceDetectBusy = false;
+      }
+    }
+
+    faceAnimationFrame = requestAnimationFrame(loop);
+  };
+
+  faceAnimationFrame = requestAnimationFrame(loop);
+}
+
+function drawLiveFaceBox(video, overlay, detection) {
+  const rect = overlay.getBoundingClientRect();
+  const width = Math.max(1, Math.round(rect.width));
+  const height = Math.max(1, Math.round(rect.height));
+
+  if (overlay.width !== width || overlay.height !== height) {
+    overlay.width = width;
+    overlay.height = height;
+  }
+
+  const ctx = overlay.getContext("2d");
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+  if (!detection || !detection.passed || !detection.box) return;
+
+  // 對應影片 object-fit: cover 的裁切比例。
+  const videoWidth = video.videoWidth;
+  const videoHeight = video.videoHeight;
+  const scale = Math.max(width / videoWidth, height / videoHeight);
+  const renderedWidth = videoWidth * scale;
+  const renderedHeight = videoHeight * scale;
+  const offsetX = (width - renderedWidth) / 2;
+  const offsetY = (height - renderedHeight) / 2;
+
+  const box = detection.box;
+  const x = box.x * scale + offsetX;
+  const y = box.y * scale + offsetY;
+  const w = box.width * scale;
+  const h = box.height * scale;
+
+  ctx.save();
+  ctx.strokeStyle = "#22c55e";
+  ctx.lineWidth = 3;
+  ctx.shadowColor = "rgba(34, 197, 94, 0.75)";
+  ctx.shadowBlur = 8;
+  ctx.strokeRect(x, y, w, h);
+
+  const label = "✓ 偵測到人臉";
+  ctx.font = "bold 13px sans-serif";
+  const labelWidth = ctx.measureText(label).width + 16;
+  const labelY = Math.max(0, y - 27);
+  ctx.fillStyle = "rgba(22, 163, 74, 0.95)";
+  ctx.fillRect(x, labelY, labelWidth, 24);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(label, x + 8, labelY + 17);
+  ctx.restore();
+}
+
+function stopLiveFaceDetection() {
+  if (faceAnimationFrame !== null) {
+    cancelAnimationFrame(faceAnimationFrame);
+    faceAnimationFrame = null;
+  }
+
+  faceDetectBusy = false;
+  const overlay = document.getElementById("face-overlay");
+  if (overlay) {
+    const ctx = overlay.getContext("2d");
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
   }
 }
 
-function updateCameraFacingLabel() {
-  const label = document.getElementById("camera-facing-label");
-  if (label) {
-    label.innerText = `切換鏡頭 (目前：${currentCameraFacing === 'user' ? '前鏡頭' : '後鏡頭'})`;
-  }
-}
-
-async function stopCamera() {
+async function stopCamera(options = {}) {
+  const hideContainer = options.hideContainer !== false;
   const container = document.getElementById("camera-container");
   const btnText = document.getElementById("camera-btn-text");
 
-  if ("speechSynthesis" in window) {
-    window.speechSynthesis.cancel();
-  }
+  stopLiveFaceDetection();
+
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 
   clearTimeout(speechWatchdog);
   speechWatchdog = null;
   currentSpeech = null;
   isAnnouncementPlaying = false;
-
   document.getElementById("checkin-overlay").classList.remove("show");
 
   if (html5QrcodeScanner) {
     try {
-      if (html5QrcodeScanner.isScanning) {
-        await html5QrcodeScanner.stop();
-      }
-      html5QrcodeScanner.clear();
-    } catch (error) {}
+      if (html5QrcodeScanner.isScanning) await html5QrcodeScanner.stop();
+    } catch (error) {
+      console.warn("停止鏡頭時發生訊息：", error);
+    }
+
+    try { html5QrcodeScanner.clear(); } catch (error) {}
     html5QrcodeScanner = null;
   }
 
   isCameraOpen = false;
   scanCoolDown = false;
-  container.classList.add("hidden");
-  btnText.innerText = "開啟前鏡頭掃描";
+
+  if (hideContainer) {
+    container.classList.add("hidden");
+    btnText.innerText = "開啟鏡頭掃描";
+  }
+}
+
+/* 相容舊版呼叫名稱。 */
+function updateCameraFacingLabel() {
+  refreshCameraList();
 }
 
 
@@ -1997,6 +2205,7 @@ function init() {
   initAttendance();
   render();
   updateClock();
+  refreshCameraList();
   setInterval(updateClock, 1000);
 }
 
