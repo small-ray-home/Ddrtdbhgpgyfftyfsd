@@ -11,9 +11,7 @@
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
-  <!-- 人臉立體特徵分類器 (Viola-Jones Haar Cascade，非單純顏色比對) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/tracking.js/1.1.3/tracking-min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/tracking.js/1.1.3/data/face-min.js"></script>
+  <!-- Google MediaPipe Tasks Vision：Face Detector (BlazeFace) -->
 
   <!-- ZIP 壓縮打包套件 (匯出照片必備) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -507,7 +505,7 @@
         </div>
 
         <span class="text-xs text-indigo-600 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-full font-medium">
-          👤 真人面部照片存證
+          👤 人臉畫面照片存證
         </span>
 
       </div>
@@ -869,89 +867,82 @@ function validateQrCode(decodedText) {
 
 
 /* =========================================
-   9. 純真人面部立體結構辨識 (徹底杜絕木桌/白紙)
+   9. Google MediaPipe Face Detector（BlazeFace）
 ========================================= */
 
+// MediaPipe Tasks Vision 只初始化一次；使用官方 VIDEO/IMAGE 任務套件的 IMAGE
+// 單張模式，因為 QR Code 解碼回呼時只需檢查當下擷取的畫面。
+let mediapipeFaceDetectorPromise = null;
+
+async function getMediaPipeFaceDetector() {
+  if (!mediapipeFaceDetectorPromise) {
+    mediapipeFaceDetectorPromise = (async () => {
+      const visionModule = await import(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs"
+      );
+      const vision = await visionModule.FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+      );
+      return await visionModule.FaceDetector.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite",
+          delegate: "GPU"
+        },
+        runningMode: "IMAGE",
+        minDetectionConfidence: 0.35,
+        minSuppressionThreshold: 0.3
+      });
+    })().catch(error => {
+      // 初始化失敗時允許下次重試，不把失敗的 Promise 永久留存。
+      mediapipeFaceDetectorPromise = null;
+      throw error;
+    });
+  }
+  return mediapipeFaceDetectorPromise;
+}
+
 /**
- * 徹底拋棄容易把木紋桌、地板誤判為膚色的顏色檢驗。
- * 僅採用純黑白五官灰階特徵 (Haar Cascade) 與 類神經網路 FaceDetector。
- * 畫面中若只有一張白紙或木頭桌，絕對直接判定為【未偵測到人臉】！
+ * 使用 Google MediaPipe BlazeFace 偵測當下畫面中的人臉。
+ * 這是「人臉存在偵測」，不是身分辨識或活體防偽。
  */
 async function verifyGenuineFaceInFrame(canvas) {
-  const width = canvas.width;
-  const height = canvas.height;
+  try {
+    const detector = await getMediaPipeFaceDetector();
+    const result = detector.detect(canvas);
+    const detections = result?.detections || [];
 
-  // 1. 原生 FaceDetector API (高階神經網路，精確辨識眼睛、眉毛、鼻子、面部)
-  if ('FaceDetector' in window) {
-    try {
-      const detector = new FaceDetector({ fastMode: false, maxDetectedFaces: 2 });
-      const faces = await detector.detect(canvas);
+    if (!detections.length) return { passed: false };
 
-      if (faces && faces.length > 0) {
-        for (const face of faces) {
-          const b = face.boundingBox;
-          // 尺寸限制：寬度與高度必須至少 40px，確保非背景雜點
-          if (b.width >= 40 && b.height >= 40) {
-            return {
-              passed: true,
-              box: { x: b.x, y: b.y, width: b.width, height: b.height },
-              method: "FaceDetector"
-            };
-          }
-        }
-      }
-    } catch (e) {}
+    // 優先選信心分數最高且尺寸足夠的臉框。
+    const candidates = detections
+      .map(detection => {
+        const box = detection.boundingBox;
+        const score = detection.categories?.[0]?.score ?? 0;
+        return { detection, box, score };
+      })
+      .filter(item => item.box && item.box.width >= 45 && item.box.height >= 45)
+      .sort((a, b) => b.score - a.score);
+
+    if (!candidates.length) return { passed: false };
+
+    const best = candidates[0];
+    const b = best.box;
+    return {
+      passed: true,
+      box: {
+        x: b.originX,
+        y: b.originY,
+        width: b.width,
+        height: b.height
+      },
+      score: best.score,
+      keypoints: best.detection.keypoints || [],
+      method: "MediaPipe BlazeFace"
+    };
+  } catch (error) {
+    console.error("MediaPipe Face Detector 初始化或偵測失敗：", error);
+    return { passed: false, error: error?.message || String(error) };
   }
-
-  // 2. tracking.js Viola-Jones (經由眼窩、鼻樑、面頰明暗比對訓練的模型)
-  if (window.tracking && tracking.ViolaJones && tracking.ViolaJones.classifiers && tracking.ViolaJones.classifiers.face) {
-    try {
-      const scaleCanvas = document.createElement("canvas");
-      const targetW = 320;
-      const scale = targetW / width;
-      scaleCanvas.width = targetW;
-      scaleCanvas.height = Math.round(height * scale);
-
-      const sCtx = scaleCanvas.getContext("2d");
-      sCtx.drawImage(canvas, 0, 0, scaleCanvas.width, scaleCanvas.height);
-      const imgData = sCtx.getImageData(0, 0, scaleCanvas.width, scaleCanvas.height);
-
-      const rects = tracking.ViolaJones.detect(
-        imgData.data,
-        scaleCanvas.width,
-        scaleCanvas.height,
-        1.7,  // initialScale
-        1.25, // scaleFactor
-        1.6,  // stepSize
-        0.15, // edgesDensity (嚴格邊緣密度，防止木紋紋路被判為臉)
-        tracking.ViolaJones.classifiers.face
-      );
-
-      if (rects && rects.length > 0) {
-        rects.sort((a, b) => (b.width * b.height) - (a.width * a.height));
-        const best = rects[0];
-        const origW = best.width / scale;
-        const origH = best.height / scale;
-
-        // 必須具備面部基本長寬比與足夠大小
-        if (origW >= 45 && origH >= 45) {
-          return {
-            passed: true,
-            box: {
-              x: best.x / scale,
-              y: best.y / scale,
-              width: origW,
-              height: origH
-            },
-            method: "ViolaJones"
-          };
-        }
-      }
-    } catch (err) {}
-  }
-
-  // 🛑 移除了原本的膚色檢測！無人臉特徵一律判定失敗！
-  return { passed: false };
 }
 
 /**
@@ -985,7 +976,7 @@ function createStampedPhoto(sourceCanvas, student, faceBox, timeStr, status) {
 
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 11px sans-serif";
-    ctx.fillText("✓ 真人面部通過", bx + 6, Math.max(15, by - 6));
+    ctx.fillText("✓ 偵測到人臉", bx + 6, Math.max(15, by - 6));
   }
 
   // 底部黑條
@@ -1054,8 +1045,8 @@ async function handleQrCodeScan(decodedText) {
 
   // 🔴 失敗：畫面只有桌子或紙張，沒有真人五官！
   if (!faceCheck.passed) {
-    faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span><span class="text-rose-300 font-bold">未見真人面部</span>`;
-    resultElem.innerHTML = `❌ <span class="bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded font-bold mr-1">人臉檢驗未過</span> 讀取到 ${student.name} 的條碼，但鏡頭未見到真人面部或眼睛，請學生面對鏡頭出示條碼！`;
+    faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span><span class="text-rose-300 font-bold">${faceCheck.error ? "人臉模型載入失敗" : "未偵測到人臉"}</span>`;
+    resultElem.innerHTML = `❌ <span class="bg-rose-100 text-rose-800 px-1.5 py-0.5 rounded font-bold mr-1">未偵測到人臉</span> 已讀取 ${student.name} 的 QR Code，請調整鏡頭距離、光線及臉部位置後再掃描。`;
     resultElem.className = "font-semibold text-rose-700 min-h-[32px] flex items-center bg-rose-50 p-2 rounded-xl border border-rose-200";
 
     playFailBeep();
@@ -1068,7 +1059,7 @@ async function handleQrCodeScan(decodedText) {
   scanCoolDown = true;
   isAnnouncementPlaying = true;
 
-  faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span class="text-emerald-300 font-bold">真人面部通過</span>`;
+  faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span class="text-emerald-300 font-bold">已偵測到人臉</span>`;
 
   const timeStr = getTimeString();
   const status = getAttendanceStatus(timeStr);
@@ -1085,10 +1076,10 @@ async function handleQrCodeScan(decodedText) {
   flashCameraContainer("border-emerald-500");
 
   if (status === "late") {
-    resultElem.innerHTML = `⚠️ 遲到簽到：<strong class="text-amber-700">${student.id} 號 ${student.name}</strong>（${timeStr}）· 真人面部照片已存檔`;
+    resultElem.innerHTML = `⚠️ 遲到簽到：<strong class="text-amber-700">${student.id} 號 ${student.name}</strong>（${timeStr}）· 掃描畫面照片已存檔`;
     resultElem.className = "font-semibold text-amber-700 min-h-[32px] flex items-center";
   } else {
-    resultElem.innerHTML = `✅ 簽到成功：<strong class="text-emerald-700">${student.id} 號 ${student.name}</strong>（${timeStr}）· 真人面部照片已存檔`;
+    resultElem.innerHTML = `✅ 簽到成功：<strong class="text-emerald-700">${student.id} 號 ${student.name}</strong>（${timeStr}）· 掃描畫面照片已存檔`;
     resultElem.className = "font-semibold text-emerald-700 min-h-[32px] flex items-center";
   }
 
@@ -1346,7 +1337,7 @@ async function toggleCamera() {
   container.classList.remove("hidden");
   btnText.innerText = "關閉鏡頭掃描";
   isCameraOpen = true;
-  document.getElementById("scan-result").innerText = "正在啟動鏡頭與真人面部辨識引擎...";
+  document.getElementById("scan-result").innerText = "正在啟動鏡頭與MediaPipe 人臉偵測引擎...";
 
   try {
     await startSelectedCamera();
