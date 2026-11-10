@@ -886,7 +886,7 @@ async function getMediaPipeFaceDetector() {
       return await visionModule.FaceDetector.createFromOptions(vision, {
         baseOptions: {
           modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite",
-          delegate: "GPU"
+          delegate: "CPU"
         },
         runningMode: "IMAGE",
         minDetectionConfidence: 0.35,
@@ -1337,55 +1337,104 @@ async function toggleCamera() {
   container.classList.remove("hidden");
   btnText.innerText = "關閉鏡頭掃描";
   isCameraOpen = true;
-  document.getElementById("scan-result").innerText = "正在啟動鏡頭與MediaPipe 人臉偵測引擎...";
+  document.getElementById("scan-result").innerText = "正在啟動攝影機……";
 
   try {
     await startSelectedCamera();
     await refreshCameraList();
-    document.getElementById("scan-result").innerText = "📷 鏡頭已就緒，請學生面對鏡頭並出示條碼。";
+    document.getElementById("scan-result").innerText =
+      "📷 鏡頭已就緒，請學生面對鏡頭並出示條碼。";
     updateCameraFacingLabel();
   } catch (error) {
-    console.error("指定鏡頭啟動失敗，嘗試自動選擇：", error);
-    if (html5QrcodeScanner) {
-      try {
-        if (html5QrcodeScanner.isScanning) await html5QrcodeScanner.stop();
-        html5QrcodeScanner.clear();
-      } catch (cleanupError) {}
-      html5QrcodeScanner = null;
-    }
-    try {
-      selectedCameraId = "";
-      html5QrcodeScanner = new Html5Qrcode("reader");
-      await html5QrcodeScanner.start(
-        { facingMode: currentCameraFacing },
-        { fps: 15, aspectRatio: 1.0, disableFlip: false },
-        handleQrCodeScan,
-        function() {}
-      );
-      await refreshCameraList();
-      document.getElementById("scan-result").innerText = "📷 自動選擇的鏡頭已就緒，請出示條碼。";
-    } catch (fallbackError) {
-      console.error("鏡頭啟動失敗：", fallbackError);
-      alert("無法開啟鏡頭！請確認瀏覽器已允許攝影機權限，並使用 HTTPS 網址。 ");
-      await stopCamera();
-    }
+    console.error("攝影機啟動失敗：", error);
+    const reason = getCameraErrorMessage(error);
+    document.getElementById("scan-result").innerText = `攝影機啟動失敗：${reason}`;
+    alert(`無法開啟攝影機。\n\n${reason}\n\n請確認：\n1. 使用 Chrome 或 Edge。\n2. 網頁網址為 HTTPS 或 localhost（不要直接用一般 file:// 開啟）。\n3. 瀏覽器已允許此網站使用攝影機。\n4. 其他程式沒有占用攝影機。`);
+    await stopCamera();
   }
 }
 
+function getCameraErrorMessage(error) {
+  const name = error?.name || "";
+  const message = error?.message || String(error || "未知錯誤");
+
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "瀏覽器拒絕攝影機權限。請點網址列左側的網站設定，將「攝影機」改為允許。";
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "找不到攝影機，請確認鏡頭已連接並在系統中啟用。";
+  }
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "攝影機可能正被其他程式使用，請關閉相機、Meet、Teams 等程式後重試。";
+  }
+  if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+    return "指定的鏡頭或解析度不受支援，請改選「自動選擇」。";
+  }
+  if (!window.isSecureContext) {
+    return "目前不是安全連線。請改用 HTTPS 網址或 http://localhost 開啟。";
+  }
+  return `${name ? name + "：" : ""}${message}`;
+}
+
 async function startSelectedCamera() {
-  if (!window.Html5Qrcode) throw new Error("QR 掃描套件尚未載入");
+  if (!window.Html5Qrcode) {
+    throw new Error("QR 掃描套件尚未載入，請檢查網路或 CDN 是否遭到阻擋。");
+  }
+
+  // 每次啟動前先清除舊掃描器，避免重複建立造成鏡頭被占用。
+  if (html5QrcodeScanner) {
+    try {
+      if (html5QrcodeScanner.isScanning) await html5QrcodeScanner.stop();
+      html5QrcodeScanner.clear();
+    } catch (cleanupError) {
+      console.warn("清理舊掃描器時發生問題：", cleanupError);
+    }
+    html5QrcodeScanner = null;
+  }
+
   html5QrcodeScanner = new Html5Qrcode("reader");
+  const config = { fps: 12, aspectRatio: 1.0, disableFlip: false };
 
-  const cameraConfig = selectedCameraId
-    ? selectedCameraId
-    : { facingMode: currentCameraFacing };
+  // 優先使用使用者明確選取的 deviceId；失敗時再嘗試前／後鏡頭。
+  if (selectedCameraId) {
+    try {
+      await html5QrcodeScanner.start(
+        { deviceId: { exact: selectedCameraId } },
+        config,
+        handleQrCodeScan,
+        function() {}
+      );
+      return;
+    } catch (selectedError) {
+      console.warn("指定 deviceId 啟動失敗，改用鏡頭方向：", selectedError);
+      try { html5QrcodeScanner.clear(); } catch (e) {}
+      html5QrcodeScanner = new Html5Qrcode("reader");
+    }
+  }
 
-  await html5QrcodeScanner.start(
-    cameraConfig,
-    { fps: 15, aspectRatio: 1.0, disableFlip: false },
-    handleQrCodeScan,
-    function() {}
-  );
+  try {
+    await html5QrcodeScanner.start(
+      { facingMode: { ideal: currentCameraFacing } },
+      config,
+      handleQrCodeScan,
+      function() {}
+    );
+  } catch (facingError) {
+    console.warn("依前／後鏡頭方向啟動失敗，改用可用鏡頭清單：", facingError);
+    try { html5QrcodeScanner.clear(); } catch (e) {}
+    html5QrcodeScanner = new Html5Qrcode("reader");
+
+    const cameras = await Html5Qrcode.getCameras();
+    if (!cameras || cameras.length === 0) throw facingError;
+
+    // 最後備援：直接使用瀏覽器列出的第一個可用鏡頭。
+    await html5QrcodeScanner.start(
+      cameras[0].id,
+      config,
+      handleQrCodeScan,
+      function() {}
+    );
+  }
 }
 
 async function refreshCameraList() {
@@ -1418,41 +1467,34 @@ async function selectCameraDevice(cameraId) {
   scanResult.innerText = "正在切換指定鏡頭……";
 
   try {
-    if (html5QrcodeScanner) {
-      if (html5QrcodeScanner.isScanning) await html5QrcodeScanner.stop();
-      html5QrcodeScanner.clear();
-      html5QrcodeScanner = null;
-    }
     await startSelectedCamera();
     scanResult.innerText = "✓ 已切換鏡頭，請將人臉與 QR Code 同時放入畫面。";
   } catch (error) {
     console.error("切換鏡頭失敗：", error);
-    alert("無法使用這個鏡頭，請改選其他鏡頭。");
+    scanResult.innerText = `切換鏡頭失敗：${getCameraErrorMessage(error)}`;
+    alert(`無法使用這個鏡頭。\n\n${getCameraErrorMessage(error)}\n\n已保留目前鏡頭狀態，請改選「自動選擇」或其他裝置。`);
     await refreshCameraList();
   }
 }
 
-// 前後鏡頭快速切換；若已手動選擇裝置，先清除指定裝置改用 facingMode。
+// 前後鏡頭快速切換。
 async function switchCameraFacing() {
   currentCameraFacing = (currentCameraFacing === "user") ? "environment" : "user";
   selectedCameraId = "";
   const select = document.getElementById("camera-select");
   if (select) select.value = "";
   updateCameraFacingLabel();
+
   if (isCameraOpen) {
-    if (html5QrcodeScanner) {
-      try {
-        if (html5QrcodeScanner.isScanning) await html5QrcodeScanner.stop();
-        html5QrcodeScanner.clear();
-      } catch (error) {}
-      html5QrcodeScanner = null;
-    }
     try {
       await startSelectedCamera();
       await refreshCameraList();
-      document.getElementById("scan-result").innerText = "✓ 已切換鏡頭，請將人臉與 QR Code 同時放入畫面。";
+      document.getElementById("scan-result").innerText =
+        "✓ 已切換鏡頭，請將人臉與 QR Code 同時放入畫面。";
     } catch (error) {
-      alert("切換鏡頭失敗，請從鏡頭清單選擇其他裝置。");
+      console.error("切換前後鏡頭失敗：", error);
+      document.getElementById("scan-result").innerText =
+        `切換鏡頭失敗：${getCameraErrorMessage(error)}`;
     }
   }
 }
