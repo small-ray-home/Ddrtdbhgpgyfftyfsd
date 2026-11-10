@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>807 班早晨點名簽到系統（前鏡頭·真人面部驗證版）</title>
+  <title>807 班早晨點名簽到系統（前鏡頭·MediaPipe 人臉偵測版）</title>
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- QR Code 掃描與產生套件 -->
   <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
   <!-- Google MediaPipe Tasks Vision：Face Detector (BlazeFace) -->
@@ -149,7 +150,7 @@
     <div class="checkin-content">
 
       <div class="text-base sm:text-xl font-bold text-slate-300 tracking-widest">
-        QP807 · 807 班早晨點名（真人面部驗證通過）
+        QP807 · 807 班早晨點名（人臉與 QR Code 即時框線）
       </div>
 
       <!-- 拍攝照片展示區 -->
@@ -157,7 +158,7 @@
         <div class="relative rounded-2xl overflow-hidden border-4 border-emerald-400 shadow-2xl bg-slate-900 max-w-[280px] sm:max-w-[340px]">
           <img id="checkin-photo" src="" alt="簽到照片" class="w-full h-44 sm:h-52 object-cover block">
           <div class="absolute bottom-2 right-2 bg-emerald-600/95 text-white text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1 shadow backdrop-blur-sm">
-            <span>✓</span> 真人面部辨識存檔
+            <span>✓</span> 人臉框線存檔
           </div>
         </div>
       </div>
@@ -206,7 +207,7 @@
               807 班早晨點名簽到系統
             </h1>
             <span class="text-[11px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full border border-emerald-300">
-              前鏡頭優先 · 真人防偽版
+              前鏡頭優先 · 人臉即時偵測版
             </span>
           </div>
 
@@ -215,7 +216,7 @@
             <span class="font-semibold text-slate-700">07:46:00</span>
             <span class="mx-1.5 text-slate-300">|</span>
             防偽機制：
-            <span class="font-semibold text-indigo-600">嚴格真人五官輪廓比對（拒絕桌面白紙）</span>
+            <span class="font-semibold text-indigo-600">MediaPipe 人臉存在偵測（非身分辨識／活體驗證）</span>
           </p>
         </div>
       </div>
@@ -323,7 +324,7 @@
           </div>
 
           <div class="absolute bottom-2.5 right-2.5 bg-slate-900/70 text-slate-300 text-[10px] px-2 py-0.5 rounded backdrop-blur-sm pointer-events-none">
-            👤 人臉需入鏡
+            👤 人臉與 QR Code 均會顯示綠框
           </div>
         </div>
 
@@ -337,7 +338,7 @@
 
             <ul class="list-disc pl-5 space-y-1.5 text-slate-600 text-xs sm:text-sm">
               <li><strong class="text-indigo-600">前鏡頭優先</strong>：學生正對螢幕，將條碼出示於鏡頭前即可。</li>
-              <li><strong class="text-rose-600">真偽檢驗（禁止純紙張代簽）</strong>：必須有學生的人臉/眼睛入鏡才會通過，<strong class="text-slate-800">直接把紙條平放在木桌上或遮擋鏡頭不會通過</strong>！</li>
+              <li><strong class="text-rose-600">真偽檢驗（需同時偵測到 QR Code 與人臉）</strong>：必須有學生的人臉/眼睛入鏡才會通過，<strong class="text-slate-800">此功能只偵測畫面中是否有人臉，不代表本人或活體驗證</strong>！</li>
               <li><strong class="text-slate-900">不限位置</strong>：臉部與條碼只要出現在鏡頭內任意位置即可（戴口罩亦可）。</li>
               <li>簽到成功時會發出清脆提示音、自動拍攝存證並全螢幕語音朗讀。</li>
             </ul>
@@ -358,7 +359,7 @@
 
           <div class="flex items-center justify-between text-xs text-slate-400 pt-1">
             <span>專屬格式：QP807-01 ～ QP807-35</span>
-            <span class="text-emerald-600 font-medium">✓ 真人面部特徵驗證防偽啟動中</span>
+            <span class="text-emerald-600 font-medium">✓ 人臉存在偵測啟動中</span>
           </div>
 
         </div>
@@ -755,6 +756,13 @@ let isCameraOpen = false;
 let scanCoolDown = false;
 let selectedCameraId = "";
 let availableCameras = [];
+let liveDetectionRaf = 0;
+let liveDetectionBusy = false;
+let liveDetectionLastAt = 0;
+let latestFaceCheck = { passed: false, checkedAt: 0 };
+let liveDetectionCanvas = null;
+let liveDetectionCtx = null;
+let liveDetectionSourceCanvas = null;
 
 let isAnnouncementPlaying = false;
 let currentSpeech = null;
@@ -1041,7 +1049,10 @@ async function handleQrCodeScan(decodedText) {
   faceBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span><span>檢驗人臉特徵中...</span>`;
 
   // 檢驗人臉立體五官結構（純桌面白紙必失敗）
-  const faceCheck = await verifyGenuineFaceInFrame(capCanvas);
+  let faceCheck = latestFaceCheck;
+  if (!faceCheck.checkedAt || Date.now() - faceCheck.checkedAt > 900) {
+    faceCheck = await verifyGenuineFaceInFrame(capCanvas);
+  }
 
   // 🔴 失敗：畫面只有桌子或紙張，沒有真人五官！
   if (!faceCheck.passed) {
@@ -1055,7 +1066,7 @@ async function handleQrCodeScan(decodedText) {
     return;
   }
 
-  // 🟢 成功：真人入鏡，合格存檔
+  // 🟢 成功：偵測到人臉，存檔
   scanCoolDown = true;
   isAnnouncementPlaying = true;
 
